@@ -30,6 +30,8 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "uvicorn>=0.30.0",
     "httpx>=0.27.0",
+    "google-auth>=2.0.0",
+    "rich>=13.0.0",  # For beautiful CLI output
 ]
 
 [project.optional-dependencies]
@@ -44,6 +46,7 @@ dev = [
 
 [project.scripts]
 kg-mcp = "kg_mcp.main:main"
+kg-mcp-setup = "kg_mcp.cli.setup:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kg_mcp"]

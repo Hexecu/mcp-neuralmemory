@@ -148,11 +148,15 @@ class KGRepository:
         OPTIONAL MATCH (g)-[:HAS_CONSTRAINT]->(c:Constraint)
         OPTIONAL MATCH (g)-[:HAS_STRATEGY]->(s:Strategy)
         OPTIONAL MATCH (g)-[:HAS_ACCEPTANCE_CRITERIA]->(ac:AcceptanceCriteria)
+        WITH g, 
+             collect(DISTINCT c {.*}) as constraints,
+             collect(DISTINCT s {.*}) as strategies,
+             collect(DISTINCT ac {.*}) as acceptance_criteria
         RETURN g {
             .*,
-            constraints: collect(DISTINCT c {.*}),
-            strategies: collect(DISTINCT s {.*}),
-            acceptance_criteria: collect(DISTINCT ac {.*})
+            constraints: constraints,
+            strategies: strategies,
+            acceptance_criteria: acceptance_criteria
         } as goal
         ORDER BY g.priority ASC, g.created_at DESC
         """
