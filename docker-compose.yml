@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: kg-memory-neo4j
+    ports:
+      - "7474:7474"  # HTTP Browser
+      - "7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-password123}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      # Performance tuning
+      - NEO4J_server_memory_heap_initial__size=512m
+      - NEO4J_server_memory_heap_max__size=1G
+      - NEO4J_server_memory_pagecache_size=512m
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_plugins:
+    driver: local

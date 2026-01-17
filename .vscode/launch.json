@@ -1,0 +1,41 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "MCP Server",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "kg_mcp.main",
+            "cwd": "${workspaceFolder}/server",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/server/src"
+            },
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Apply Schema",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "kg_mcp.kg.apply_schema",
+            "cwd": "${workspaceFolder}/server",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/server/src"
+            },
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "name": "Pytest",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "tests/",
+                "-v"
+            ],
+            "cwd": "${workspaceFolder}/server",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/server/src"
+            }
+        }
+    ]
+}

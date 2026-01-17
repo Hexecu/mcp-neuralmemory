@@ -1,0 +1,250 @@
+# MCP-KG-Memory
+
+> **Memory/Knowledge Graph MCP Server** - Un server MCP che mantiene contesto persistente, preferenze, obiettivi e knowledge graph per assistenti AI negli IDE.
+
+## 🎯 Funzionalità
+
+- **Ingestion intelligente**: Analizza ogni richiesta utente ed estrae obiettivi, vincoli, preferenze, pain points e strategie usando Gemini 2.5
+- **Context Pack**: Ad ogni richiesta, naviga il grafo e restituisce contesto rilevante per non perdere la rotta
+- **Code Graph**: Mappa file → simboli → riferimenti/calls per impact analysis
+- **Goal Tracking**: Obiettivo → codice → test per sapere cosa ritestare quando qualcosa cambia
+- **Retrieval ibrido**: Traversal del grafo + fulltext search + (opzionale) embeddings
+
+## 📋 Prerequisiti
+
+- Python 3.11+
+- Docker e Docker Compose
+- Neo4j 5.x (fornito via Docker)
+- API Key Gemini (Google AI Studio)
+
+## 🚀 Quick Start
+
+### 1. Setup ambiente
+
+```bash
+cd mcp-kg-memory
+
+# Copia e configura le variabili d'ambiente
+cp .env.example .env
+# Edita .env con le tue API keys
+
+# Crea virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+# oppure: .venv\Scripts\activate  # Windows
+
+# Installa dipendenze
+cd server
+pip install -e .
+```
+
+### 2. Avvia Neo4j
+
+```bash
+# Dalla root del progetto
+docker-compose up -d neo4j
+
+# Verifica che Neo4j sia up (attendi ~30s)
+docker-compose logs -f neo4j
+```
+
+### 3. Applica schema Neo4j
+
+```bash
+# Una volta che Neo4j è pronto
+python -m kg_mcp.kg.apply_schema
+```
+
+### 4. Avvia il server MCP
+
+```bash
+# Dalla cartella server
+python -m kg_mcp.main
+
+# Il server sarà disponibile su http://127.0.0.1:8000/mcp
+```
+
+## 🔧 Configurazione IDE
+
+### VS Code
+
+Crea/modifica `.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "kg-memory": {
+      "type": "http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "authorization": "Bearer ${env:KG_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Aggiungi in `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "kg-memory": {
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "authorization": "Bearer ${env:KG_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Cline/Roo Code
+
+Aggiungi in `.cline/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kg-memory": {
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KG_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+## 📚 MCP Tools
+
+### `kg_ingest_message`
+Analizza e salva una richiesta utente nel knowledge graph.
+
+**Input:**
+- `project_id`: ID del progetto
+- `user_text`: Testo della richiesta utente
+- `files` (opzionale): Lista di path file coinvolti
+- `diff` (opzionale): Diff del codice
+- `symbols` (opzionale): Lista di simboli
+- `tags` (opzionale): Tag aggiuntivi
+
+**Output:**
+- `interaction_id`: ID dell'interazione creata
+- `extracted`: JSON con entità estratte
+- `created_entities`: IDs delle entità create
+
+### `kg_context_pack`
+Costruisce un context pack navigando il grafo.
+
+**Input:**
+- `project_id`: ID del progetto
+- `focus_goal_id` (opzionale): ID goal su cui focalizzarsi
+- `query` (opzionale): Query di ricerca
+- `k_hops`: Numero di hop nel grafo (default: 2)
+
+**Output:**
+- `markdown`: Contesto formattato in Markdown
+- `entities`: Lista di entità rilevanti
+
+### `kg_search`
+Cerca nel knowledge graph con fulltext + traversal.
+
+**Input:**
+- `project_id`: ID del progetto
+- `query`: Query di ricerca
+- `filters` (opzionale): Filtri per tipo entità
+- `limit`: Limite risultati (default: 20)
+
+### `kg_link_code_artifact`
+Collega un artefatto di codice al grafo.
+
+**Input:**
+- `project_id`: ID del progetto
+- `path`: Path del file
+- `kind`: Tipo (file/function/class/snippet)
+- `language`: Linguaggio
+- `symbol_fqn` (opzionale): Fully qualified name del simbolo
+- `start_line`, `end_line` (opzionale): Range linee
+- `git_commit` (opzionale): Commit hash
+- `content_hash` (opzionale): Hash del contenuto
+- `related_goal_ids` (opzionale): IDs goal collegati
+
+### `kg_impact_analysis`
+Analizza l'impatto di modifiche al codice.
+
+**Input:**
+- `project_id`: ID del progetto
+- `changed_paths`: Lista di path modificati
+- `changed_symbols`: Lista di simboli modificati
+
+**Output:**
+- `goals_to_retest`: Goals che potrebbero essere impattati
+- `tests_to_run`: Test da eseguire
+- `strategies_to_review`: Strategie da rivedere
+- `artifacts_related`: Artefatti correlati
+
+## 📖 MCP Resources
+
+- `kg://projects/{project_id}/active-goals` - Goals attivi del progetto
+- `kg://projects/{project_id}/preferences` - Preferenze utente
+- `kg://projects/{project_id}/goal/{goal_id}/subgraph` - Subgraph di un goal
+
+## 💬 MCP Prompts
+
+### `StartCodingWithKG`
+Template che istruisce l'agente IDE a:
+1. Chiamare `kg_ingest_message` con la richiesta utente
+2. Chiamare `kg_context_pack` e usare quel markdown come contesto
+3. Quando crea/modifica file, chiamare `kg_link_code_artifact`
+
+## 🔒 Sicurezza
+
+- Server bind su `127.0.0.1` (solo accessi locali)
+- Autenticazione Bearer token obbligatoria
+- Origin allowlist configurabile
+- Nessuna esecuzione di comandi shell
+- Audit log per ogni operazione
+
+## 🏗️ Architettura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        IDE Agent                             │
+│  (VS Code/Cursor/Cline con MCP Client)                      │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ MCP (Streamable HTTP)
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    MCP-KG-Memory Server                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │   Tools     │  │  Resources  │  │      Prompts        │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
+│         │                │                     │             │
+│         └────────────────┼─────────────────────┘             │
+│                          ▼                                   │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │                   LLM Pipeline                          ││
+│  │  ┌───────────┐   ┌───────────┐   ┌─────────────────┐   ││
+│  │  │ Extractor │ → │  Linker   │ → │ Neo4j Commit    │   ││
+│  │  │ (Gemini)  │   │ (Gemini)  │   │                 │   ││
+│  │  └───────────┘   └───────────┘   └─────────────────┘   ││
+│  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────┬───────────────────────────────────┘
+                          │ Bolt
+                          ▼
+              ┌───────────────────────┐
+              │        Neo4j          │
+              │  (Knowledge Graph)    │
+              └───────────────────────┘
+```
+
+## 📜 License
+
+MIT License
+
+## 🤝 Contributing
+
+PRs welcome! Per favore apri prima una issue per discutere le modifiche proposte.
