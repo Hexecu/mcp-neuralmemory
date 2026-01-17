@@ -59,10 +59,37 @@ python -m kg_mcp.kg.apply_schema
 
 ```bash
 # Dalla cartella server
-python -m kg_mcp.main
 
+# Modalità HTTP (default) - per serverUrl config
+python -m kg_mcp --transport http
 # Il server sarà disponibile su http://127.0.0.1:8000/mcp
+
+# Modalità STDIO - per command/args config  
+python -m kg_mcp --transport stdio
+
+# Con opzioni custom
+python -m kg_mcp --transport http --host 0.0.0.0 --port 9000
 ```
+
+## 🖥️ CLI Reference
+
+Il server supporta due modalità di trasporto:
+
+```bash
+# STDIO mode (per Antigravity/IDE command config)
+kg-mcp --transport stdio
+python -m kg_mcp --transport stdio
+
+# HTTP mode (per serverUrl config o standalone)
+kg-mcp --transport http --host 127.0.0.1 --port 8000
+python -m kg_mcp -t http -p 8000
+```
+
+**Opzioni:**
+- `--transport`, `-t`: Modalità trasporto (`stdio` | `http`, default: `http`)
+- `--host`: Host per HTTP mode (default: `127.0.0.1`)
+- `--port`, `-p`: Porta per HTTP mode (default: `8000`)
+- `--path`: Path endpoint MCP (default: `/mcp`)
 
 ## 🔧 Configurazione IDE
 
@@ -117,6 +144,56 @@ Aggiungi in `.cline/mcp_config.json`:
   }
 }
 ```
+
+### 🚀 Google Antigravity IDE
+
+Antigravity supporta due modalità di configurazione MCP:
+
+#### Setup Steps:
+1. Apri **Agent sidebar** (o Agent Manager)
+2. Clicca **...** (More Actions)
+3. Seleziona **MCP Servers**
+4. Vai su **Manage MCP Servers** → **View raw config** (apre `mcp_config.json`)
+5. Incolla una delle configurazioni sotto
+6. Salva il file e premi **Refresh**
+
+#### Opzione A: Server Locale (command/args) ✅ Consigliato per dev
+
+```json
+{
+  "mcpServers": {
+    "kg-memory": {
+      "command": "python",
+      "args": ["-m", "kg_mcp", "--transport", "stdio"],
+      "env": {
+        "NEO4J_URI": "bolt://127.0.0.1:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "your_password",
+        "GEMINI_API_KEY": "your_gemini_key",
+        "KG_MCP_TOKEN": "your_token"
+      }
+    }
+  }
+}
+```
+
+#### Opzione B: Server Remoto (serverUrl) ✅ Per produzione/cloud
+
+```json
+{
+  "mcpServers": {
+    "kg-memory": {
+      "serverUrl": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer your_token"
+      }
+    }
+  }
+}
+```
+
+> **Nota:** In modalità `command`, assicurati che Python e le dipendenze siano nel PATH.
+> Puoi usare il path completo: `"command": "/path/to/.venv/bin/python"`
 
 ## 📚 MCP Tools
 
