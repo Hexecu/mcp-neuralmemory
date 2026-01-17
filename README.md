@@ -556,7 +556,7 @@ mypy src/
 
 ## 📜 License
 
-MIT License - see [LICENSE](LICENSE) for details.
+Apache License 2.0
 
 ---
 
