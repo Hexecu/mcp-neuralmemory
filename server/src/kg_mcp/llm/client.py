@@ -35,10 +35,25 @@ class LLMClient:
 
     def __init__(self):
         self.settings = get_settings()
-        # Set API key for Gemini
-        if self.settings.gemini_api_key:
-            litellm.api_key = self.settings.gemini_api_key
         self.model = self.settings.llm_model
+        
+        # Configure LiteLLM based on available credentials
+        # Priority: LiteLLM Gateway > Direct Gemini
+        if self.settings.litellm_base_url and self.settings.litellm_api_key:
+            # Using LiteLLM Gateway/Proxy
+            self.api_base = self.settings.litellm_base_url.rstrip("/")
+            self.api_key = self.settings.litellm_api_key
+            logger.info(f"Using LiteLLM Gateway at {self.api_base}")
+        elif self.settings.gemini_api_key:
+            # Direct Gemini API
+            self.api_base = None
+            self.api_key = self.settings.gemini_api_key
+            litellm.api_key = self.settings.gemini_api_key
+            logger.info("Using direct Gemini API")
+        else:
+            self.api_base = None
+            self.api_key = None
+            logger.warning("No LLM API credentials configured!")
 
     async def extract_entities(
         self,
@@ -73,16 +88,24 @@ class LLMClient:
         )
 
         try:
-            response = await litellm.acompletion(
-                model=self.model,
-                messages=[
+            # Build kwargs for litellm
+            llm_kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=self.settings.llm_temperature,
-                max_tokens=self.settings.llm_max_tokens,
-                response_format={"type": "json_object"},
-            )
+                "temperature": self.settings.llm_temperature,
+                "max_tokens": self.settings.llm_max_tokens,
+                "response_format": {"type": "json_object"},
+            }
+            
+            # Add gateway config if using LiteLLM Gateway
+            if self.api_base:
+                llm_kwargs["api_base"] = self.api_base
+                llm_kwargs["api_key"] = self.api_key
+            
+            response = await litellm.acompletion(**llm_kwargs)
 
             content = response.choices[0].message.content
             if not content:
@@ -132,16 +155,24 @@ class LLMClient:
         )
 
         try:
-            response = await litellm.acompletion(
-                model=self.model,
-                messages=[
+            # Build kwargs for litellm
+            llm_kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                temperature=0.1,  # Lower temperature for more deterministic linking
-                max_tokens=2048,
-                response_format={"type": "json_object"},
-            )
+                "temperature": 0.1,  # Lower temperature for more deterministic linking
+                "max_tokens": 2048,
+                "response_format": {"type": "json_object"},
+            }
+            
+            # Add gateway config if using LiteLLM Gateway
+            if self.api_base:
+                llm_kwargs["api_base"] = self.api_base
+                llm_kwargs["api_key"] = self.api_key
+            
+            response = await litellm.acompletion(**llm_kwargs)
 
             content = response.choices[0].message.content
             if not content:

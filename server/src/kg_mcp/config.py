@@ -25,8 +25,10 @@ class Settings(BaseSettings):
     neo4j_user: str = Field(default="neo4j", description="Neo4j username")
     neo4j_password: str = Field(default="password123", description="Neo4j password")
 
-    # LLM Configuration
-    gemini_api_key: str = Field(default="", description="Gemini API Key")
+    # LLM Configuration (supports both direct Gemini and LiteLLM Gateway)
+    gemini_api_key: str = Field(default="", description="Gemini API Key (direct)")
+    litellm_api_key: str = Field(default="", description="LiteLLM Gateway API Key")
+    litellm_base_url: str = Field(default="", description="LiteLLM Gateway Base URL")
     llm_model: str = Field(
         default="gemini/gemini-2.5-pro-preview-05-06",
         description="LiteLLM model identifier",
