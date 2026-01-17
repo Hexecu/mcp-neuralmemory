@@ -352,9 +352,10 @@ class KGRepository:
         query = """
         MATCH (pp:PainPoint {project_id: $project_id, resolved: false})
         OPTIONAL MATCH (pp)<-[:BLOCKED_BY]-(g:Goal)
+        WITH pp, collect(DISTINCT g.title) as blocking_goals
         RETURN pp {
             .*,
-            blocking_goals: collect(DISTINCT g.title)
+            blocking_goals: blocking_goals
         } as painpoint
         ORDER BY 
             CASE pp.severity 
@@ -533,9 +534,10 @@ class KGRepository:
         query = """
         MATCH (g:Goal {id: $goal_id})-[:IMPLEMENTED_BY]->(ca:CodeArtifact)
         OPTIONAL MATCH (ca)-[:CONTAINS]->(s:Symbol)
+        WITH ca, collect(DISTINCT s {.*}) as symbols
         RETURN ca {
             .*,
-            symbols: collect(DISTINCT s {.*})
+            symbols: symbols
         } as artifact
         """
         result = await self.client.execute_query(query, {"goal_id": goal_id})
@@ -643,11 +645,12 @@ class KGRepository:
         // Find strategies via goals
         OPTIONAL MATCH (g)-[:HAS_STRATEGY]->(s:Strategy)
         
-        RETURN
+        WITH 
             collect(DISTINCT g {.*}) as affected_goals,
             collect(DISTINCT tc {.*}) as tests_to_run,
             collect(DISTINCT s {.*}) as strategies_to_review,
             collect(DISTINCT ca {.*}) as artifacts
+        RETURN affected_goals, tests_to_run, strategies_to_review, artifacts
         """
         result = await self.client.execute_query(
             query, {"project_id": project_id, "paths": paths}
