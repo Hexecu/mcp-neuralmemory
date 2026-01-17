@@ -352,13 +352,13 @@ class KGRepository:
         query = """
         MATCH (pp:PainPoint {project_id: $project_id, resolved: false})
         OPTIONAL MATCH (pp)<-[:BLOCKED_BY]-(g:Goal)
-        WITH pp, collect(DISTINCT g.title) as blocking_goals
+        WITH pp, pp.severity as severity, collect(DISTINCT g.title) as blocking_goals
         RETURN pp {
             .*,
             blocking_goals: blocking_goals
         } as painpoint
         ORDER BY 
-            CASE pp.severity 
+            CASE severity 
                 WHEN 'critical' THEN 1 
                 WHEN 'high' THEN 2 
                 WHEN 'medium' THEN 3 
