@@ -243,7 +243,7 @@ Template che istruisce l'agente IDE a:
 
 ## 📜 License
 
-MIT License
+Apache License 2.0
 
 ## 🤝 Contributing
 
