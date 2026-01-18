@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from kg_mcp.kg.ingest import get_ingest_pipeline
 from kg_mcp.kg.retrieval import get_context_builder
 from kg_mcp.kg.repo import get_repository
+from kg_mcp.utils import serialize_response
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,7 @@ def register_tools(mcp: FastMCP) -> None:
                 symbols=symbols,
                 tags=tags,
             )
-            return result
+            return serialize_response(result)
         except Exception as e:
             logger.error(f"kg_ingest_message failed: {e}")
             return {
@@ -202,7 +203,7 @@ def register_tools(mcp: FastMCP) -> None:
                 query=query,
                 k_hops=k_hops,
             )
-            return result
+            return serialize_response(result)
         except Exception as e:
             logger.error(f"kg_context_pack failed: {e}")
             return {
@@ -243,11 +244,11 @@ def register_tools(mcp: FastMCP) -> None:
                 node_types=filters,
                 limit=limit,
             )
-            return {
+            return serialize_response({
                 "results": results,
                 "total": len(results),
                 "query": query,
-            }
+            })
         except Exception as e:
             logger.error(f"kg_search failed: {e}")
             return {
@@ -364,7 +365,7 @@ def register_tools(mcp: FastMCP) -> None:
             paths = changed_paths or []
 
             result = await repo.get_impact_for_artifacts(project_id, paths)
-            return result
+            return serialize_response(result)
         except Exception as e:
             logger.error(f"kg_impact_analysis failed: {e}")
             return {
