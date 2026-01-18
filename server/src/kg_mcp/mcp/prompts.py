@@ -19,109 +19,68 @@ def register_prompts(mcp: FastMCP) -> None:
         Instructs an IDE agent to use the Knowledge Graph for context-aware coding.
 
         This prompt template should be invoked at the start of a coding session.
-        It guides the agent through the standard workflow:
-        1. Ingest the user's request
-        2. Get context from the knowledge graph
-        3. Track code changes in the graph
+        It guides the agent through the simplified 2-tool workflow.
         """
         return f"""# Knowledge Graph-Powered Coding Assistant
 
 You are a coding assistant enhanced with a persistent Knowledge Graph memory.
 **Project ID:** `{project_id}`
 
-## Your Workflow
+## Your Workflow (Simplified)
 
-### Step 1: Ingest Context
-At the START of every task, call the `kg_ingest_message` tool:
+### 🚀 Step 1: Start Every Task with kg_autopilot
+
+**ALWAYS** call this at the START of every task:
 
 ```
-kg_ingest_message(
+kg_autopilot(
     project_id="{project_id}",
     user_text="<paste the user's request here>",
-    files=["<list", "of", "relevant", "files>"],
-    tags=["<optional>", "<tags>"]
+    files=["<relevant", "files>"],
+    search_query="<optional: keywords to search>"
 )
 ```
 
-This will:
-- Create an Interaction record
-- Extract goals, constraints, preferences, pain points, strategies
-- Link to existing knowledge in the graph
-- Return an `interaction_id` for tracking
+This single call:
+- ✅ Ingests and analyzes the request
+- ✅ Extracts goals, constraints, preferences
+- ✅ Returns the full context pack
+- ✅ Optionally searches existing knowledge
 
-### Step 2: Get Context Pack
-After ingesting, call `kg_context_pack`:
+**Read the returned markdown context carefully!**
+
+### 🔗 Step 2: Track Changes with kg_track_changes
+
+**ALWAYS** call this AFTER modifying files:
 
 ```
-kg_context_pack(
+kg_track_changes(
     project_id="{project_id}",
-    k_hops=2
-)
-```
-
-This returns a Markdown document with:
-- 🎯 Active goals and acceptance criteria
-- ⚙️ User preferences (coding style, patterns, tools)
-- ⚠️ Open pain points to avoid
-- 📁 Relevant code artifacts
-- 📋 Strategies and decisions
-
-**Use this context throughout your work!**
-
-### Step 3: Track Code Changes
-When you CREATE or MODIFY files, call `kg_link_code_artifact`:
-
-```
-kg_link_code_artifact(
-    project_id="{project_id}",
-    path="path/to/file.py",
-    kind="file",  # or "function", "class"
-    language="python",
+    changed_paths=["path/to/modified/file.py"],
     related_goal_ids=["<goal_id from context>"]
 )
 ```
 
-This enables:
-- Impact analysis for future changes
-- Goal-to-code traceability
-- Test coverage mapping
-
-### Step 4: Before Major Changes
-Before refactoring or making breaking changes, call `kg_impact_analysis`:
-
-```
-kg_impact_analysis(
-    project_id="{project_id}",
-    changed_paths=["path/to/changed/file.py"]
-)
-```
-
-This tells you:
-- Goals that might be affected
-- Tests to re-run
-- Strategies that may need updating
-
-## Important Notes
-
-1. **Always ingest first**: The graph learns from every interaction
-2. **Use the context**: Don't ask the user to repeat themselves
-3. **Track your changes**: Keep the code graph updated
-4. **Check impact**: Before breaking changes, understand the scope
+This tracks your changes and returns impact analysis.
 
 ## Quick Reference
 
-| Tool | When to Use |
-|------|-------------|
-| `kg_ingest_message` | Start of every task |
-| `kg_context_pack` | After ingest, to get full context |
-| `kg_search` | When looking for specific information |
-| `kg_link_code_artifact` | After creating/modifying files |
-| `kg_impact_analysis` | Before refactoring |
+| When | Tool |
+|------|------|
+| START of every task | `kg_autopilot` |
+| AFTER file changes | `kg_track_changes` |
+
+## Important Rules
+
+1. **Never skip kg_autopilot** at task start - it's your persistent memory
+2. **Never skip kg_track_changes** after modifying code - it maintains traceability
+3. **Read the context pack** - it contains goals, preferences, and pain points to avoid
 
 ---
 
 Now, let's begin! What would you like to work on?
 """
+
 
     @mcp.prompt()
     def ReviewGoals(project_id: str) -> str:

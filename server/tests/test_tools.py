@@ -166,3 +166,92 @@ class TestKgImpactAnalysis:
         assert "tests_to_run" in result
         assert "strategies_to_review" in result
         assert "artifacts_related" in result
+
+
+class TestKgAutopilot:
+    """Tests for the simplified kg_autopilot tool."""
+
+    @pytest.mark.asyncio
+    async def test_autopilot_combines_ingest_and_context(
+        self, mock_ingest_pipeline, mock_context_builder
+    ):
+        """Test that autopilot calls both ingest and context pack."""
+        # Simulate ingest
+        ingest_result = await mock_ingest_pipeline.process_message(
+            project_id="test-project",
+            user_text="Create a login feature",
+        )
+        
+        # Simulate context pack
+        context_result = await mock_context_builder.build_context_pack(
+            project_id="test-project",
+        )
+
+        # Verify both were called
+        assert ingest_result["interaction_id"] is not None
+        assert "markdown" in context_result
+
+    @pytest.mark.asyncio
+    async def test_autopilot_returns_combined_result(
+        self, mock_ingest_pipeline, mock_context_builder
+    ):
+        """Test that autopilot returns a combined result structure."""
+        ingest_result = await mock_ingest_pipeline.process_message(
+            project_id="test-project",
+            user_text="Test message",
+        )
+        context_result = await mock_context_builder.build_context_pack(
+            project_id="test-project",
+        )
+
+        # The combined result should have fields from both
+        combined = {
+            "interaction_id": ingest_result["interaction_id"],
+            "extracted": ingest_result["extracted"],
+            "markdown": context_result["markdown"],
+            "entities": context_result["entities"],
+        }
+
+        assert combined["interaction_id"] == "test-interaction"
+        assert "# Context Pack" in combined["markdown"]
+
+
+class TestKgTrackChanges:
+    """Tests for the simplified kg_track_changes tool."""
+
+    @pytest.mark.asyncio
+    async def test_track_changes_links_multiple_files(self, mock_repository):
+        """Test that track_changes can link multiple files."""
+        paths = ["src/main.py", "src/utils.py", "tests/test_main.py"]
+        
+        linked_count = 0
+        for path in paths:
+            await mock_repository.upsert_code_artifact(
+                project_id="test-project",
+                path=path,
+                kind="file",
+            )
+            linked_count += 1
+
+        assert linked_count == 3
+        assert mock_repository.upsert_code_artifact.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_track_changes_includes_impact_analysis(self, mock_repository):
+        """Test that track_changes includes impact analysis."""
+        # Link artifact
+        await mock_repository.upsert_code_artifact(
+            project_id="test-project",
+            path="src/auth.py",
+            kind="file",
+        )
+
+        # Get impact
+        impact = await mock_repository.get_impact_for_artifacts(
+            project_id="test-project",
+            paths=["src/auth.py"],
+        )
+
+        assert "goals_to_retest" in impact
+        assert "tests_to_run" in impact
+

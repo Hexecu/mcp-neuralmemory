@@ -274,112 +274,42 @@ Add to `.cline/mcp_config.json`:
 
 ## 📚 MCP Tools
 
-### `kg_ingest_message`
+> [!IMPORTANT]
+> **Use only `kg_autopilot` and `kg_track_changes`** for the standard workflow.
+> All other tools are for internal use and should not be called directly.
 
-Analyze and save a user request to the knowledge graph.
+### Primary Tools (Use These) ⭐
 
-**Parameters:**
+Use these 2 tools for the standard workflow:
+
+#### `kg_autopilot`
+
+🚀 **Call at the START of every task.** Combines ingest + context + search.
+
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `project_id` | string | ✅ | Project identifier |
 | `user_text` | string | ✅ | User's message/request |
+| `search_query` | string | ❌ | Optional search keywords |
 | `files` | string[] | ❌ | File paths involved |
-| `diff` | string | ❌ | Code diff |
-| `symbols` | string[] | ❌ | Code symbols |
-| `tags` | string[] | ❌ | Tags for categorization |
+| `k_hops` | integer | ❌ | Graph depth (1-5, default: 2) |
 
-**Returns:**
-```json
-{
-  "interaction_id": "uuid",
-  "extracted": {
-    "goals": [...],
-    "constraints": [...],
-    "preferences": [...]
-  },
-  "created_entities": {"goals": [...], "constraints": [...]},
-  "confidence": 0.85
-}
-```
+**Returns:** `markdown` (context pack), `interaction_id`, `extracted`, `search_results`
 
 ---
 
-### `kg_context_pack`
+#### `kg_track_changes`
 
-Build a comprehensive context pack from the knowledge graph.
+🔗 **Call AFTER every file modification.** Links artifacts + impact analysis.
 
-**Parameters:**
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `project_id` | string | ✅ | Project identifier |
-| `focus_goal_id` | string | ❌ | Specific goal to focus on |
-| `query` | string | ❌ | Search query for additional context |
-| `k_hops` | integer | ❌ | Graph traversal depth (1-5, default: 2) |
+| `changed_paths` | string[] | ✅ | Modified file paths |
+| `check_impact` | boolean | ❌ | Run impact analysis (default: true) |
+| `related_goal_ids` | string[] | ❌ | Goal IDs being implemented |
 
-**Returns:**
-```json
-{
-  "markdown": "# Context Pack\n\n## Active Goals\n...",
-  "entities": {
-    "active_goals": [...],
-    "preferences": [...],
-    "pain_points": [...]
-  }
-}
-```
-
----
-
-### `kg_search`
-
-Search the knowledge graph with fulltext + traversal.
-
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `project_id` | string | ✅ | Project identifier |
-| `query` | string | ✅ | Search query |
-| `filters` | string[] | ❌ | Type filters (Goal, PainPoint, Strategy) |
-| `limit` | integer | ❌ | Max results (default: 20) |
-
----
-
-### `kg_link_code_artifact`
-
-Link a code artifact to the knowledge graph.
-
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `project_id` | string | ✅ | Project identifier |
-| `path` | string | ✅ | File path |
-| `kind` | string | ❌ | Type: file, function, class, snippet |
-| `language` | string | ❌ | Programming language |
-| `symbol_fqn` | string | ❌ | Fully qualified symbol name |
-| `related_goal_ids` | string[] | ❌ | Goals this artifact implements |
-
----
-
-### `kg_impact_analysis`
-
-Analyze the impact of code changes.
-
-**Parameters:**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `project_id` | string | ✅ | Project identifier |
-| `changed_paths` | string[] | ❌ | Changed file paths |
-| `changed_symbols` | string[] | ❌ | Changed symbol FQNs |
-
-**Returns:**
-```json
-{
-  "goals_to_retest": [...],
-  "tests_to_run": [...],
-  "strategies_to_review": [...],
-  "artifacts_related": [...]
-}
-```
+**Returns:** `artifacts_linked`, `impact_analysis`
 
 ---
 
@@ -399,9 +329,9 @@ Analyze the impact of code changes.
 ### `StartCodingWithKG`
 
 Standard workflow prompt that instructs IDE agents to:
-1. Call `kg_ingest_message` with the user request
-2. Call `kg_context_pack` and use the markdown as context
-3. When creating/modifying files, call `kg_link_code_artifact`
+1. Call `kg_autopilot` with the user request (automatically ingests and builds context)
+2. Read the returned markdown context pack
+3. When creating/modifying files, call `kg_track_changes`
 
 ### `ReviewGoals`
 

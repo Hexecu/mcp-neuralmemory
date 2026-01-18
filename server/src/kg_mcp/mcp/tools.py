@@ -1,13 +1,17 @@
 """
 MCP Tool definitions for the Knowledge Graph Memory Server.
-These are the main entry points for IDE agents to interact with the KG.
+
+This module exposes ONLY 2 tools to AI agents:
+- kg_autopilot: Call at the START of every task
+- kg_track_changes: Call AFTER every file modification
+
+All other functionality is internal and not exposed via MCP.
 """
 
 import logging
 from typing import Any, Dict, List, Optional
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
 
 from kg_mcp.kg.ingest import get_ingest_pipeline
 from kg_mcp.kg.retrieval import get_context_builder
@@ -18,135 +22,268 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Tool Input/Output Schemas
+# INTERNAL HELPER FUNCTIONS (Not exposed via MCP)
 # =============================================================================
 
 
-class IngestMessageInput(BaseModel):
-    """Input schema for kg_ingest_message tool."""
+async def _ingest_message(
+    project_id: str,
+    user_text: str,
+    files: Optional[List[str]] = None,
+    diff: Optional[str] = None,
+    symbols: Optional[List[str]] = None,
+    tags: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Internal: Analyze and save a user request to the knowledge graph.
+    Called by kg_autopilot.
+    """
+    logger.info(f"_ingest_message called for project {project_id}")
 
-    project_id: str = Field(..., description="Unique identifier for the project")
-    user_text: str = Field(..., description="The user's message or request text")
-    files: Optional[List[str]] = Field(
-        None, description="List of file paths involved in this request"
-    )
-    diff: Optional[str] = Field(None, description="Code diff if available")
-    symbols: Optional[List[str]] = Field(
-        None, description="List of code symbols referenced"
-    )
-    tags: Optional[List[str]] = Field(
-        None, description="Tags to categorize this interaction"
-    )
-
-
-class ContextPackInput(BaseModel):
-    """Input schema for kg_context_pack tool."""
-
-    project_id: str = Field(..., description="Project to build context for")
-    focus_goal_id: Optional[str] = Field(
-        None, description="Specific goal ID to focus the context on"
-    )
-    query: Optional[str] = Field(
-        None, description="Optional search query for additional context"
-    )
-    k_hops: int = Field(
-        default=2, ge=1, le=5, description="Number of hops for graph traversal"
-    )
-
-
-class SearchInput(BaseModel):
-    """Input schema for kg_search tool."""
-
-    project_id: str = Field(..., description="Project to search within")
-    query: str = Field(..., description="Search query")
-    filters: Optional[List[str]] = Field(
-        None,
-        description="Filter by node types: Goal, PainPoint, Strategy, Decision, CodeArtifact",
-    )
-    limit: int = Field(default=20, ge=1, le=100, description="Maximum results to return")
+    try:
+        pipeline = get_ingest_pipeline()
+        result = await pipeline.process_message(
+            project_id=project_id,
+            user_text=user_text,
+            files=files,
+            diff=diff,
+            symbols=symbols,
+            tags=tags,
+        )
+        return serialize_response(result)
+    except Exception as e:
+        logger.error(f"_ingest_message failed: {e}")
+        return {
+            "error": str(e),
+            "interaction_id": None,
+            "extracted": {},
+            "created_entities": {},
+        }
 
 
-class LinkCodeArtifactInput(BaseModel):
-    """Input schema for kg_link_code_artifact tool."""
+async def _context_pack(
+    project_id: str,
+    focus_goal_id: Optional[str] = None,
+    query: Optional[str] = None,
+    k_hops: int = 2,
+) -> Dict[str, Any]:
+    """
+    Internal: Build a comprehensive context pack from the knowledge graph.
+    Called by kg_autopilot.
+    """
+    logger.info(f"_context_pack called for project {project_id}")
 
-    project_id: str = Field(..., description="Project ID")
-    path: str = Field(..., description="File path of the artifact")
-    kind: str = Field(
-        default="file",
-        description="Type: file, function, class, snippet",
-    )
-    language: Optional[str] = Field(None, description="Programming language")
-    symbol_fqn: Optional[str] = Field(
-        None, description="Fully qualified name of the symbol"
-    )
-    start_line: Optional[int] = Field(None, description="Start line number")
-    end_line: Optional[int] = Field(None, description="End line number")
-    git_commit: Optional[str] = Field(None, description="Git commit hash")
-    content_hash: Optional[str] = Field(None, description="Hash of the content")
-    related_goal_ids: Optional[List[str]] = Field(
-        None, description="IDs of goals this artifact implements"
-    )
+    try:
+        builder = get_context_builder()
+        result = await builder.build_context_pack(
+            project_id=project_id,
+            focus_goal_id=focus_goal_id,
+            query=query,
+            k_hops=k_hops,
+        )
+        return serialize_response(result)
+    except Exception as e:
+        logger.error(f"_context_pack failed: {e}")
+        return {
+            "error": str(e),
+            "markdown": f"# Error\n\nFailed to build context: {e}",
+            "entities": {},
+        }
 
 
-class ImpactAnalysisInput(BaseModel):
-    """Input schema for kg_impact_analysis tool."""
+async def _search(
+    project_id: str,
+    query: str,
+    filters: Optional[List[str]] = None,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """
+    Internal: Search the knowledge graph using fulltext + traversal.
+    Called by kg_autopilot when search_query is provided.
+    """
+    logger.info(f"_search called: '{query}' in project {project_id}")
 
-    project_id: str = Field(..., description="Project ID")
-    changed_paths: Optional[List[str]] = Field(
-        None, description="List of changed file paths"
-    )
-    changed_symbols: Optional[List[str]] = Field(
-        None, description="List of changed symbol FQNs"
-    )
+    try:
+        repo = get_repository()
+        results = await repo.fulltext_search(
+            project_id=project_id,
+            query=query,
+            node_types=filters,
+            limit=limit,
+        )
+        return serialize_response({
+            "results": results,
+            "total": len(results),
+            "query": query,
+        })
+    except Exception as e:
+        logger.error(f"_search failed: {e}")
+        return {
+            "error": str(e),
+            "results": [],
+            "total": 0,
+        }
+
+
+async def _link_code_artifact(
+    project_id: str,
+    path: str,
+    kind: str = "file",
+    language: Optional[str] = None,
+    symbol_fqn: Optional[str] = None,
+    start_line: Optional[int] = None,
+    end_line: Optional[int] = None,
+    git_commit: Optional[str] = None,
+    content_hash: Optional[str] = None,
+    related_goal_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Internal: Link a code artifact to the knowledge graph.
+    Called by kg_track_changes.
+    """
+    logger.info(f"_link_code_artifact called: {path}")
+
+    try:
+        repo = get_repository()
+        artifact = await repo.upsert_code_artifact(
+            project_id=project_id,
+            path=path,
+            kind=kind,
+            language=language,
+            symbol_fqn=symbol_fqn,
+            start_line=start_line,
+            end_line=end_line,
+            git_commit=git_commit,
+            content_hash=content_hash,
+            related_goal_ids=related_goal_ids,
+        )
+        return {
+            "artifact_id": artifact.get("id"),
+            "path": path,
+            "linked_goals": len(related_goal_ids) if related_goal_ids else 0,
+        }
+    except Exception as e:
+        logger.error(f"_link_code_artifact failed: {e}")
+        return {
+            "error": str(e),
+            "artifact_id": None,
+        }
+
+
+async def _impact_analysis(
+    project_id: str,
+    changed_paths: Optional[List[str]] = None,
+    changed_symbols: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Internal: Analyze the impact of code changes.
+    Called by kg_track_changes when check_impact=True.
+    """
+    logger.info(f"_impact_analysis called for project {project_id}")
+
+    if not changed_paths and not changed_symbols:
+        return {
+            "error": "At least one of changed_paths or changed_symbols is required",
+            "goals_to_retest": [],
+            "tests_to_run": [],
+            "strategies_to_review": [],
+            "artifacts_related": [],
+        }
+
+    try:
+        repo = get_repository()
+        paths = changed_paths or []
+
+        result = await repo.get_impact_for_artifacts(project_id, paths)
+        return serialize_response(result)
+    except Exception as e:
+        logger.error(f"_impact_analysis failed: {e}")
+        return {
+            "error": str(e),
+            "goals_to_retest": [],
+            "tests_to_run": [],
+            "strategies_to_review": [],
+            "artifacts_related": [],
+        }
 
 
 # =============================================================================
-# Tool Registration
+# MCP TOOL REGISTRATION (Only 2 tools exposed)
 # =============================================================================
 
 
 def register_tools(mcp: FastMCP) -> None:
-    """Register all MCP tools with the server."""
+    """
+    Register MCP tools with the server.
+    
+    Only 2 tools are exposed:
+    - kg_autopilot: For starting tasks
+    - kg_track_changes: For tracking file modifications
+    """
 
     @mcp.tool()
-    async def kg_ingest_message(
+    async def kg_autopilot(
         project_id: str,
         user_text: str,
+        search_query: Optional[str] = None,
         files: Optional[List[str]] = None,
         diff: Optional[str] = None,
         symbols: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        k_hops: int = 2,
     ) -> Dict[str, Any]:
         """
-        Analyze and save a user request to the knowledge graph.
+        🚀 CALL THIS TOOL AT THE START OF EVERY TASK.
 
-        This tool:
-        1. Creates an Interaction node for the request
-        2. Uses LLM to extract goals, constraints, preferences, pain points, strategies
-        3. Links entities with existing graph nodes (deduplication + relationships)
-        4. Commits everything to Neo4j
+        ⚠️ DO NOT CALL THIS TOOL AFTER CREATING/MODIFYING FILES!
+        Use kg_track_changes instead for file changes.
 
-        Call this at the START of every coding task to build context.
+        WHEN TO USE THIS TOOL:
+        ✅ Starting a new task or user request
+        ✅ User asks a question (to retrieve past context)
+        ✅ Resuming work on an existing project
+        ✅ Need to understand goals, constraints, preferences
+
+        WHEN NOT TO USE THIS TOOL:
+        ❌ After creating a file → use kg_track_changes
+        ❌ After modifying a file → use kg_track_changes
+        ❌ To "save" or "record" task completion → NOT NEEDED
+        ❌ To update goal status → NOT SUPPORTED HERE
+
+        It automatically:
+        1. Ingests and analyzes the user request (extracts goals, constraints, etc.)
+        2. Returns the full context pack with active goals, preferences, pain points
+        3. Optionally searches existing knowledge if search_query is provided
 
         Args:
-            project_id: Unique identifier for the project/workspace
+            project_id: Project identifier (use workspace folder name)
             user_text: The user's message or request
+            search_query: Optional query to search existing knowledge
             files: Optional list of file paths involved
             diff: Optional code diff
-            symbols: Optional list of code symbols (function names, classes)
+            symbols: Optional list of code symbols
             tags: Optional tags for categorization
+            k_hops: Graph traversal depth (1-5, default 2)
 
         Returns:
-            interaction_id: ID of the created interaction
+            markdown: Formatted context pack (READ THIS CAREFULLY)
+            interaction_id: ID of the ingested interaction
             extracted: Extracted entities (goals, constraints, etc.)
-            created_entities: IDs of created/updated entities
-            confidence: Extraction confidence score
+            search_results: Search results if search_query was provided
         """
-        logger.info(f"kg_ingest_message called for project {project_id}")
+        logger.info(f"kg_autopilot called for project {project_id}")
+
+        result: Dict[str, Any] = {
+            "markdown": "",
+            "interaction_id": None,
+            "extracted": {},
+            "search_results": [],
+        }
 
         try:
+            # Step 1: Ingest the message
             pipeline = get_ingest_pipeline()
-            result = await pipeline.process_message(
+            ingest_result = await pipeline.process_message(
                 project_id=project_id,
                 user_text=user_text,
                 files=files,
@@ -154,226 +291,145 @@ def register_tools(mcp: FastMCP) -> None:
                 symbols=symbols,
                 tags=tags,
             )
-            return serialize_response(result)
-        except Exception as e:
-            logger.error(f"kg_ingest_message failed: {e}")
-            return {
-                "error": str(e),
-                "interaction_id": None,
-                "extracted": {},
-                "created_entities": {},
-            }
+            result["interaction_id"] = ingest_result.get("interaction_id")
+            result["extracted"] = ingest_result.get("extracted", {})
 
-    @mcp.tool()
-    async def kg_context_pack(
-        project_id: str,
-        focus_goal_id: Optional[str] = None,
-        query: Optional[str] = None,
-        k_hops: int = 2,
-    ) -> Dict[str, Any]:
-        """
-        Build a comprehensive context pack from the knowledge graph.
-
-        This retrieves:
-        - Active goals with acceptance criteria, constraints, strategies
-        - User preferences and coding style guidelines
-        - Open pain points and blockers
-        - Relevant code artifacts
-        - Search results if query is provided
-
-        Call this AFTER kg_ingest_message to get context for your task.
-
-        Args:
-            project_id: Project to build context for
-            focus_goal_id: Optional specific goal to focus on
-            query: Optional search query for additional relevant context
-            k_hops: Depth of graph traversal (1-5, default 2)
-
-        Returns:
-            markdown: Formatted context in Markdown (ready to use as system context)
-            entities: Raw entity data for programmatic access
-        """
-        logger.info(f"kg_context_pack called for project {project_id}")
-
-        try:
+            # Step 2: Build context pack
             builder = get_context_builder()
-            result = await builder.build_context_pack(
+            context_result = await builder.build_context_pack(
                 project_id=project_id,
-                focus_goal_id=focus_goal_id,
-                query=query,
+                query=search_query,
                 k_hops=k_hops,
             )
+            result["markdown"] = context_result.get("markdown", "")
+            # Add reminder about kg_track_changes
+            result["markdown"] += "\n\n---\n*📝 REMINDER: Call `kg_track_changes` after EVERY file you create or modify to keep the knowledge graph updated.*"
+            result["entities"] = context_result.get("entities", {})
+
+            # Step 3: Optional search
+            if search_query:
+                repo = get_repository()
+                search_results = await repo.fulltext_search(
+                    project_id=project_id,
+                    query=search_query,
+                    limit=10,
+                )
+                result["search_results"] = search_results
+
             return serialize_response(result)
+
         except Exception as e:
-            logger.error(f"kg_context_pack failed: {e}")
-            return {
-                "error": str(e),
-                "markdown": f"# Error\n\nFailed to build context: {e}",
-                "entities": {},
-            }
+            logger.error(f"kg_autopilot failed: {e}")
+            result["error"] = str(e)
+            result["markdown"] = f"# Error\n\nFailed to build context: {e}"
+            return result
 
     @mcp.tool()
-    async def kg_search(
+    async def kg_track_changes(
         project_id: str,
-        query: str,
-        filters: Optional[List[str]] = None,
-        limit: int = 20,
-    ) -> Dict[str, Any]:
-        """
-        Search the knowledge graph using fulltext + traversal.
-
-        Searches across goals, pain points, strategies, decisions, and code artifacts.
-
-        Args:
-            project_id: Project to search within
-            query: Search query (supports natural language)
-            filters: Optional type filters (Goal, PainPoint, Strategy, Decision, CodeArtifact)
-            limit: Maximum results (default 20, max 100)
-
-        Returns:
-            results: List of matching entities with scores
-            total: Total number of matches
-        """
-        logger.info(f"kg_search called: '{query}' in project {project_id}")
-
-        try:
-            repo = get_repository()
-            results = await repo.fulltext_search(
-                project_id=project_id,
-                query=query,
-                node_types=filters,
-                limit=limit,
-            )
-            return serialize_response({
-                "results": results,
-                "total": len(results),
-                "query": query,
-            })
-        except Exception as e:
-            logger.error(f"kg_search failed: {e}")
-            return {
-                "error": str(e),
-                "results": [],
-                "total": 0,
-            }
-
-    @mcp.tool()
-    async def kg_link_code_artifact(
-        project_id: str,
-        path: str,
-        kind: str = "file",
+        changed_paths: List[str],
+        check_impact: bool = True,
         language: Optional[str] = None,
-        symbol_fqn: Optional[str] = None,
-        start_line: Optional[int] = None,
-        end_line: Optional[int] = None,
-        git_commit: Optional[str] = None,
-        content_hash: Optional[str] = None,
         related_goal_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
-        Link a code artifact to the knowledge graph.
+        🔗 CALL THIS TOOL AFTER EVERY FILE MODIFICATION.
 
-        Call this when you CREATE or MODIFY a file to keep the graph updated.
-        This enables impact analysis and goal-code traceability.
+        ⚠️ DO NOT use kg_autopilot for tracking file changes!
+
+        WHEN TO USE THIS TOOL:
+        ✅ After creating a new file (write_to_file tool)
+        ✅ After modifying a file (replace_file_content, multi_replace tools)
+        ✅ After deleting a file
+        ✅ After refactoring operations
+
+        WHEN NOT TO USE THIS TOOL:
+        ❌ At the start of a task → use kg_autopilot
+        ❌ To retrieve context → use kg_autopilot
+        ❌ To ingest user requests → use kg_autopilot
+
+        WHAT THIS TOOL DOES:
+        1. Links files to the knowledge graph as CodeArtifact nodes
+        2. AUTO-LINKS to ALL active goals (no need to specify goal IDs!)
+        3. Runs impact analysis to identify affected goals/tests
+        4. Enables future context retrieval (so next session remembers what was done)
+
+        Call it IMMEDIATELY after each file modification, not at the end of your work.
 
         Args:
-            project_id: Project ID
-            path: File path (relative or absolute)
-            kind: Type: file, function, class, snippet
-            language: Programming language (python, typescript, etc.)
-            symbol_fqn: Fully qualified name (e.g., 'module.ClassName.method_name')
-            start_line: Start line for the symbol
-            end_line: End line for the symbol
-            git_commit: Current git commit hash
-            content_hash: Hash of the file content
-            related_goal_ids: Goal IDs this artifact implements
+            project_id: Project identifier
+            changed_paths: List of file paths that were created/modified/deleted (REQUIRED)
+            check_impact: Whether to run impact analysis (default: True)
+            language: Programming language (auto-detected if not provided)
+            related_goal_ids: Optional goal IDs (if None, AUTO-LINKS to all active goals!)
 
         Returns:
-            artifact_id: ID of the created/updated artifact
-            symbol_id: ID of the symbol (if symbol_fqn provided)
-            linked_goals: Number of goals linked
+            artifacts_linked: Number of artifacts linked to the graph
+            auto_linked_goals: Goals that were automatically linked
+            impact_analysis: Goals, tests, and strategies that may be affected
         """
-        logger.info(f"kg_link_code_artifact called: {path}")
+        logger.info(f"kg_track_changes called for {len(changed_paths)} files")
+
+        if not changed_paths:
+            return {
+                "error": "changed_paths is required and cannot be empty",
+                "artifacts_linked": 0,
+                "impact_analysis": {},
+            }
+
+        result: Dict[str, Any] = {
+            "artifacts_linked": 0,
+            "linked_paths": [],
+            "impact_analysis": {},
+        }
 
         try:
             repo = get_repository()
-            artifact = await repo.upsert_code_artifact(
-                project_id=project_id,
-                path=path,
-                kind=kind,
-                language=language,
-                symbol_fqn=symbol_fqn,
-                start_line=start_line,
-                end_line=end_line,
-                git_commit=git_commit,
-                content_hash=content_hash,
-                related_goal_ids=related_goal_ids,
-            )
-            return {
-                "artifact_id": artifact.get("id"),
-                "path": path,
-                "linked_goals": len(related_goal_ids) if related_goal_ids else 0,
-            }
-        except Exception as e:
-            logger.error(f"kg_link_code_artifact failed: {e}")
-            return {
-                "error": str(e),
-                "artifact_id": None,
-            }
 
-    @mcp.tool()
-    async def kg_impact_analysis(
-        project_id: str,
-        changed_paths: Optional[List[str]] = None,
-        changed_symbols: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Analyze the impact of code changes.
+            # Step 1: Auto-link to active goals if not specified
+            auto_linked = False
+            if related_goal_ids is None:
+                try:
+                    active_goals = await repo.get_active_goals(project_id)
+                    related_goal_ids = [g["id"] for g in active_goals if g.get("id")]
+                    auto_linked = True
+                    result["auto_linked_goals"] = [
+                        {"id": g["id"], "title": g.get("title", "Unknown")}
+                        for g in active_goals if g.get("id")
+                    ]
+                    logger.info(f"Auto-linking to {len(related_goal_ids)} active goals")
+                except Exception as goal_error:
+                    logger.warning(f"Could not fetch active goals for auto-linking: {goal_error}")
+                    related_goal_ids = []
+                    result["auto_linked_goals"] = []
+            else:
+                result["auto_linked_goals"] = []
 
-        Given changed files or symbols, returns:
-        - Goals that might be affected
-        - Tests that should be run
-        - Strategies that may need review
-        - Related artifacts
+            # Step 2: Link all artifacts
+            for path in changed_paths:
+                try:
+                    await repo.upsert_code_artifact(
+                        project_id=project_id,
+                        path=path,
+                        kind="file",
+                        language=language,
+                        related_goal_ids=related_goal_ids,
+                    )
+                    result["artifacts_linked"] += 1
+                    result["linked_paths"].append(path)
+                except Exception as link_error:
+                    logger.warning(f"Failed to link {path}: {link_error}")
 
-        Use this before making changes to understand the scope of impact.
+            # Step 2: Impact analysis
+            if check_impact:
+                impact = await repo.get_impact_for_artifacts(project_id, changed_paths)
+                result["impact_analysis"] = impact
 
-        Args:
-            project_id: Project ID
-            changed_paths: List of file paths that changed
-            changed_symbols: List of symbol FQNs that changed
-
-        Returns:
-            goals_to_retest: Goals that may be affected by these changes
-            tests_to_run: Test cases that should be executed
-            strategies_to_review: Strategies that may need updating
-            artifacts_related: Other related code artifacts
-        """
-        logger.info(f"kg_impact_analysis called for project {project_id}")
-
-        if not changed_paths and not changed_symbols:
-            return {
-                "error": "At least one of changed_paths or changed_symbols is required",
-                "goals_to_retest": [],
-                "tests_to_run": [],
-                "strategies_to_review": [],
-                "artifacts_related": [],
-            }
-
-        try:
-            repo = get_repository()
-            paths = changed_paths or []
-
-            result = await repo.get_impact_for_artifacts(project_id, paths)
             return serialize_response(result)
-        except Exception as e:
-            logger.error(f"kg_impact_analysis failed: {e}")
-            return {
-                "error": str(e),
-                "goals_to_retest": [],
-                "tests_to_run": [],
-                "strategies_to_review": [],
-                "artifacts_related": [],
-            }
 
-    logger.info("MCP tools registered successfully")
+        except Exception as e:
+            logger.error(f"kg_track_changes failed: {e}")
+            result["error"] = str(e)
+            return result
+
+    logger.info("MCP tools registered: kg_autopilot, kg_track_changes (2 tools only)")
