@@ -72,8 +72,6 @@ class TestKgIngestMessage:
         with patch(
             "kg_mcp.mcp.tools.get_ingest_pipeline", return_value=mock_ingest_pipeline
         ):
-            from kg_mcp.mcp.tools import IngestMessageInput
-
             # Simulate the tool function behavior
             result = await mock_ingest_pipeline.process_message(
                 project_id="test-project",

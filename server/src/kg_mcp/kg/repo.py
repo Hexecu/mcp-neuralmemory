@@ -497,11 +497,37 @@ class KGRepository:
         return artifact
 
     async def upsert_symbol(
-        self, artifact_id: str, fqn: str, kind: str = "function"
+        self,
+        artifact_id: str,
+        fqn: str,
+        kind: str = "function",
+        name: Optional[str] = None,
+        line_start: Optional[int] = None,
+        line_end: Optional[int] = None,
+        signature: Optional[str] = None,
+        change_type: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Upsert a symbol node and link to artifact."""
+        """
+        Upsert a symbol node with full details and link to artifact.
+        
+        Args:
+            artifact_id: ID of the parent CodeArtifact
+            fqn: Fully qualified name (e.g., "src/utils.py:calculate_tax")
+            kind: Symbol type: function, method, class, variable
+            name: Symbol name (extracted from fqn if not provided)
+            line_start: Starting line number (1-indexed)
+            line_end: Ending line number (1-indexed)
+            signature: Full signature (e.g., "def calculate_tax(income: float) -> float")
+            change_type: What happened: added, modified, deleted, renamed
+            
+        Returns:
+            The created/updated symbol node
+        """
         symbol_id = str(uuid4())
-        name = fqn.split(".")[-1] if "." in fqn else fqn
+        # Extract name from fqn if not provided
+        if name is None:
+            name = fqn.split(":")[-1] if ":" in fqn else fqn.split(".")[-1] if "." in fqn else fqn
+        
         query = """
         MATCH (ca:CodeArtifact {id: $artifact_id})
         MERGE (s:Symbol {fqn: $fqn})
@@ -510,10 +536,21 @@ class KGRepository:
             s.name = $name,
             s.kind = $kind,
             s.artifact_id = $artifact_id,
-            s.created_at = datetime()
+            s.line_start = $line_start,
+            s.line_end = $line_end,
+            s.signature = $signature,
+            s.change_type = $change_type,
+            s.created_at = datetime(),
+            s.updated_at = datetime()
         ON MATCH SET
+            s.name = $name,
             s.kind = $kind,
-            s.artifact_id = $artifact_id
+            s.artifact_id = $artifact_id,
+            s.line_start = COALESCE($line_start, s.line_start),
+            s.line_end = COALESCE($line_end, s.line_end),
+            s.signature = COALESCE($signature, s.signature),
+            s.change_type = $change_type,
+            s.updated_at = datetime()
         MERGE (ca)-[:CONTAINS]->(s)
         RETURN s {.*} as symbol
         """
@@ -525,6 +562,10 @@ class KGRepository:
                 "fqn": fqn,
                 "name": name,
                 "kind": kind,
+                "line_start": line_start,
+                "line_end": line_end,
+                "signature": signature,
+                "change_type": change_type,
             },
         )
         return result[0]["symbol"] if result else {"id": symbol_id, "fqn": fqn}

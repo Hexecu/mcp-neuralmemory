@@ -227,7 +227,7 @@ class IngestPipeline:
             artifact = await self.repo.upsert_code_artifact(
                 project_id=project_id,
                 path=code_ref.path,
-                kind="file" if not code_ref.symbol else "function",
+                kind="file",
                 symbol_fqn=code_ref.symbol,
                 start_line=code_ref.start_line,
                 end_line=code_ref.end_line,

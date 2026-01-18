@@ -102,6 +102,20 @@ FOR (pp:PainPoint) ON (pp.project_id);
 CREATE INDEX painpoint_resolved_idx IF NOT EXISTS
 FOR (pp:PainPoint) ON (pp.resolved);
 
+// Symbol lookups
+CREATE INDEX symbol_name_idx IF NOT EXISTS
+FOR (s:Symbol) ON (s.name);
+
+CREATE INDEX symbol_artifact_idx IF NOT EXISTS
+FOR (s:Symbol) ON (s.artifact_id);
+
+CREATE INDEX symbol_kind_idx IF NOT EXISTS
+FOR (s:Symbol) ON (s.kind);
+
+// Composite index for line range queries
+CREATE INDEX symbol_lines_idx IF NOT EXISTS
+FOR (s:Symbol) ON (s.line_start, s.line_end);
+
 
 // -----------------------------------------------------------------------------
 // FULLTEXT INDEXES (Search)
@@ -130,6 +144,10 @@ FOR (ca:CodeArtifact) ON EACH [ca.path];
 // Fulltext search on Interaction user text
 CREATE FULLTEXT INDEX interaction_fulltext IF NOT EXISTS
 FOR (i:Interaction) ON EACH [i.user_text];
+
+// Fulltext search on Symbol (name, fqn, signature)
+CREATE FULLTEXT INDEX symbol_fulltext IF NOT EXISTS
+FOR (s:Symbol) ON EACH [s.name, s.fqn, s.signature];
 
 
 // -----------------------------------------------------------------------------

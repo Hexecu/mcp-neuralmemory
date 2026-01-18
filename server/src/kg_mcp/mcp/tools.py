@@ -327,102 +327,204 @@ def register_tools(mcp: FastMCP) -> None:
     @mcp.tool()
     async def kg_track_changes(
         project_id: str,
-        changed_paths: List[str],
+        changes: List[Dict[str, Any]],
         check_impact: bool = True,
-        language: Optional[str] = None,
-        related_goal_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         🔗 CALL THIS TOOL AFTER EVERY FILE MODIFICATION.
 
         ⚠️ DO NOT use kg_autopilot for tracking file changes!
 
-        WHEN TO USE THIS TOOL:
-        ✅ After creating a new file (write_to_file tool)
-        ✅ After modifying a file (replace_file_content, multi_replace tools)
-        ✅ After deleting a file
-        ✅ After refactoring operations
+        ═══════════════════════════════════════════════════════════════════════════
+        REQUIRED INPUT FORMAT
+        ═══════════════════════════════════════════════════════════════════════════
 
-        WHEN NOT TO USE THIS TOOL:
-        ❌ At the start of a task → use kg_autopilot
-        ❌ To retrieve context → use kg_autopilot
-        ❌ To ingest user requests → use kg_autopilot
+        Each item in `changes` must be a dict with this structure:
 
-        WHAT THIS TOOL DOES:
-        1. Links files to the knowledge graph as CodeArtifact nodes
-        2. AUTO-LINKS to ALL active goals (no need to specify goal IDs!)
-        3. Runs impact analysis to identify affected goals/tests
-        4. Enables future context retrieval (so next session remembers what was done)
+        {
+            "path": "/absolute/path/to/file.py",              # REQUIRED
+            "change_type": "created" | "modified" | "deleted", # REQUIRED
+            "language": "python",                             # Optional, auto-detected
+            "symbols": [                                      # Optional but RECOMMENDED
+                {
+                    "name": "function_name",                  # e.g. "calculate_tax"
+                    "kind": "function" | "method" | "class",  # REQUIRED
+                    "line_start": 10,                         # REQUIRED
+                    "line_end": 25,                           # REQUIRED
+                    "signature": "def calculate_tax(...)",    # Optional
+                    "change_type": "added" | "modified" | "deleted"  # REQUIRED
+                }
+            ]
+        }
 
-        Call it IMMEDIATELY after each file modification, not at the end of your work.
+        ═══════════════════════════════════════════════════════════════════════════
+        EXAMPLE CALLS
+        ═══════════════════════════════════════════════════════════════════════════
+
+        Example 1 - Creating a new file with a function:
+        ```
+        kg_track_changes(
+            project_id="my-project",
+            changes=[{
+                "path": "/project/src/utils.py",
+                "change_type": "created",
+                "symbols": [{
+                    "name": "format_currency",
+                    "kind": "function",
+                    "line_start": 1,
+                    "line_end": 15,
+                    "signature": "def format_currency(amount: float, currency: str = 'EUR') -> str",
+                    "change_type": "added"
+                }]
+            }]
+        )
+        ```
+
+        Example 2 - Modifying a class method:
+        ```
+        kg_track_changes(
+            project_id="my-project",
+            changes=[{
+                "path": "/project/src/services/auth.py",
+                "change_type": "modified",
+                "symbols": [{
+                    "name": "AuthService.validate_token",
+                    "kind": "method",
+                    "line_start": 45,
+                    "line_end": 78,
+                    "signature": "async def validate_token(self, token: str) -> bool",
+                    "change_type": "modified"
+                }]
+            }]
+        )
+        ```
+
+        Example 3 - Simple file tracking (no symbols):
+        ```
+        kg_track_changes(
+            project_id="my-project",
+            changes=[{"path": "/project/README.md", "change_type": "modified"}]
+        )
+        ```
+
+        ═══════════════════════════════════════════════════════════════════════════
+        WHAT THIS TOOL DOES
+        ═══════════════════════════════════════════════════════════════════════════
+
+        1. Creates/updates CodeArtifact node for each file
+        2. Creates Symbol nodes for each symbol, linked via CONTAINS relationship
+        3. AUTO-LINKS to ALL active goals (no need to specify goal IDs!)
+        4. Stores line ranges and signatures for semantic queries
+        5. Runs impact analysis to find affected tests/strategies
+
+        ═══════════════════════════════════════════════════════════════════════════
 
         Args:
-            project_id: Project identifier
-            changed_paths: List of file paths that were created/modified/deleted (REQUIRED)
+            project_id: Project identifier (use workspace folder name)
+            changes: List of file changes with optional symbols (see format above)
             check_impact: Whether to run impact analysis (default: True)
-            language: Programming language (auto-detected if not provided)
-            related_goal_ids: Optional goal IDs (if None, AUTO-LINKS to all active goals!)
 
         Returns:
-            artifacts_linked: Number of artifacts linked to the graph
-            auto_linked_goals: Goals that were automatically linked
-            impact_analysis: Goals, tests, and strategies that may be affected
+            artifacts_linked: Number of files tracked
+            symbols_linked: Number of symbols tracked
+            auto_linked_goals: Goals automatically linked
+            impact_analysis: Affected tests and strategies
         """
-        logger.info(f"kg_track_changes called for {len(changed_paths)} files")
+        logger.info(f"kg_track_changes called for {len(changes)} files")
 
-        if not changed_paths:
+        if not changes:
             return {
-                "error": "changed_paths is required and cannot be empty",
+                "error": "changes is required and cannot be empty",
                 "artifacts_linked": 0,
+                "symbols_linked": 0,
                 "impact_analysis": {},
             }
 
         result: Dict[str, Any] = {
             "artifacts_linked": 0,
+            "symbols_linked": 0,
             "linked_paths": [],
+            "linked_symbols": [],
+            "auto_linked_goals": [],
             "impact_analysis": {},
         }
 
         try:
             repo = get_repository()
 
-            # Step 1: Auto-link to active goals if not specified
-            auto_linked = False
-            if related_goal_ids is None:
-                try:
-                    active_goals = await repo.get_active_goals(project_id)
-                    related_goal_ids = [g["id"] for g in active_goals if g.get("id")]
-                    auto_linked = True
-                    result["auto_linked_goals"] = [
-                        {"id": g["id"], "title": g.get("title", "Unknown")}
-                        for g in active_goals if g.get("id")
-                    ]
-                    logger.info(f"Auto-linking to {len(related_goal_ids)} active goals")
-                except Exception as goal_error:
-                    logger.warning(f"Could not fetch active goals for auto-linking: {goal_error}")
-                    related_goal_ids = []
-                    result["auto_linked_goals"] = []
-            else:
-                result["auto_linked_goals"] = []
+            # Step 1: Auto-link to active goals
+            try:
+                active_goals = await repo.get_active_goals(project_id)
+                related_goal_ids = [g["id"] for g in active_goals if g.get("id")]
+                result["auto_linked_goals"] = [
+                    {"id": g["id"], "title": g.get("title", "Unknown")}
+                    for g in active_goals if g.get("id")
+                ]
+                logger.info(f"Auto-linking to {len(related_goal_ids)} active goals")
+            except Exception as goal_error:
+                logger.warning(f"Could not fetch active goals: {goal_error}")
+                related_goal_ids = []
 
-            # Step 2: Link all artifacts
-            for path in changed_paths:
+            # Step 2: Process each file change
+            all_paths = []
+            for change in changes:
+                path = change.get("path")
+                if not path:
+                    logger.warning("Skipping change without path")
+                    continue
+
+                all_paths.append(path)
+                change_type = change.get("change_type", "modified")
+                language = change.get("language")
+                symbols = change.get("symbols", [])
+
                 try:
-                    await repo.upsert_code_artifact(
+                    # Create/update CodeArtifact
+                    artifact = await repo.upsert_code_artifact(
                         project_id=project_id,
                         path=path,
                         kind="file",
                         language=language,
                         related_goal_ids=related_goal_ids,
                     )
+                    artifact_id = artifact.get("id")
                     result["artifacts_linked"] += 1
                     result["linked_paths"].append(path)
+
+                    # Create symbols if provided
+                    if artifact_id and symbols:
+                        for sym in symbols:
+                            sym_name = sym.get("name")
+                            if not sym_name:
+                                continue
+
+                            # Generate FQN: path:symbol_name
+                            fqn = f"{path}:{sym_name}"
+
+                            await repo.upsert_symbol(
+                                artifact_id=artifact_id,
+                                fqn=fqn,
+                                name=sym_name,
+                                kind=sym.get("kind", "function"),
+                                line_start=sym.get("line_start"),
+                                line_end=sym.get("line_end"),
+                                signature=sym.get("signature"),
+                                change_type=sym.get("change_type", "modified"),
+                            )
+                            result["symbols_linked"] += 1
+                            result["linked_symbols"].append({
+                                "fqn": fqn,
+                                "name": sym_name,
+                                "kind": sym.get("kind"),
+                                "lines": f"{sym.get('line_start')}-{sym.get('line_end')}",
+                            })
+
                 except Exception as link_error:
                     logger.warning(f"Failed to link {path}: {link_error}")
 
-            # Step 2: Impact analysis
-            if check_impact:
-                impact = await repo.get_impact_for_artifacts(project_id, changed_paths)
+            # Step 3: Impact analysis
+            if check_impact and all_paths:
+                impact = await repo.get_impact_for_artifacts(project_id, all_paths)
                 result["impact_analysis"] = impact
 
             return serialize_response(result)
