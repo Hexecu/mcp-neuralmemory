@@ -1,616 +1,905 @@
 #!/usr/bin/env python3
 """
-Interactive Setup Wizard for MCP-KG-Memory Server.
+MCP-KG-Memory Setup Wizard — GEMINI ONLY (Direct + LiteLLM), numeric menus
 
-Guides developers through complete setup:
-1. Neo4j configuration (local Docker or remote)
-2. LLM API credentials (LiteLLM Gateway or direct Gemini)
-3. Antigravity IDE integration
-4. Schema application and verification
+What it does:
+- Guides setup with numeric choices (no strings to type for menus)
+- Supports Gemini Direct (AI Studio / Gemini API) and Gemini via LiteLLM Gateway/Proxy
+- Can configure either one, or both (and pick a primary)
+- Generates a .env file (safe + backward compatible: LLM_MODEL still present)
+- Optional: Neo4j local via Docker Compose or remote credentials
+- Optional: apply Neo4j schema (if module exists)
+- Optional: configure Antigravity MCP config (~/.gemini/antigravity/mcp_config.json)
+- Optional: connectivity tests
+
+Run:
+  python3 kg_mcp_setup.py
 """
+
+from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-try:
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.prompt import Prompt, Confirm
-    from rich.progress import Progress, SpinnerColumn, TextColumn
-    from rich.table import Table
-    from rich.markdown import Markdown
-except ImportError:
-    print("Installing rich for beautiful CLI output...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "rich", "-q"])
-    from rich.console import Console
-    from rich.panel import Panel
-    from rich.prompt import Prompt, Confirm
-    from rich.progress import Progress, SpinnerColumn, TextColumn
-    from rich.table import Table
-    from rich.markdown import Markdown
+# -------------------------
+# Dependency bootstrap
+# -------------------------
+def ensure(import_name: str, pip_name: Optional[str] = None) -> None:
+    try:
+        __import__(import_name)
+    except ImportError:
+        pkg = pip_name or import_name
+        print(f"Installing dependency: {pkg} ...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
+
+
+ensure("rich")
+ensure("requests")
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt, Confirm
+from rich.table import Table
+from rich.markdown import Markdown
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+import requests
 
 console = Console()
 
 
+# -------------------------
+# Constants (curated)
+# -------------------------
+# Main Gemini text models for KG/RAG workloads (from official Gemini API model list)
+GEMINI_DIRECT_MODELS = [
+    "gemini-2.5-flash",                    # best price/perf default
+    "gemini-2.5-pro",                      # heavier reasoning
+    "gemini-2.5-flash-lite",               # fastest/cost-efficient
+    "gemini-2.5-flash-preview-09-2025",    # preview
+    "gemini-2.5-flash-lite-preview-09-2025",
+    # Specialized (you can still pick them if needed)
+    "gemini-2.5-flash-image",
+    "gemini-2.5-flash-native-audio-preview-12-2025",
+]
+
+# If you want to allow legacy / soon-to-retire models, keep them separated and warn.
+GEMINI_LEGACY_OR_RISKY = [
+    "gemini-2.0-flash",        # example: retirement warnings exist in some Google services
+    "gemini-2.0-flash-lite",
+]
+
+# For LiteLLM, Gemini models must be sent as gemini/<model>
+def litellm_wrap(model: str) -> str:
+    if model.startswith("gemini/"):
+        return model
+    return f"gemini/{model}"
+
+
+# -------------------------
+# Small helpers
+# -------------------------
+def normalize_url(url: str) -> str:
+    url = url.strip()
+    if not url:
+        return url
+    if not re.match(r"^https?://", url):
+        url = "https://" + url
+    url = url.rstrip("/") + "/"
+    return url
+
+
+def mask(s: str, keep: int = 4) -> str:
+    if not s:
+        return ""
+    if len(s) <= keep:
+        return "*" * len(s)
+    return s[:keep] + "*" * (len(s) - keep)
+
+
+def choose_numeric(title: str, options: List[str], default_index: int = 1) -> int:
+    if default_index < 1 or default_index > len(options):
+        default_index = 1
+
+    table = Table(title=title, show_header=True, header_style="bold cyan")
+    table.add_column("#", style="bold yellow", width=4)
+    table.add_column("Opzione", style="green")
+
+    for i, opt in enumerate(options, start=1):
+        suffix = "  [dim](default)[/]" if i == default_index else ""
+        table.add_row(str(i), opt + suffix)
+
+    console.print(table)
+
+    while True:
+        raw = Prompt.ask("Seleziona un numero", default=str(default_index)).strip()
+        if raw.isdigit():
+            idx = int(raw)
+            if 1 <= idx <= len(options):
+                return idx
+        console.print("[red]Valore non valido. Inserisci un numero presente in lista.[/]")
+
+
+def prompt_required(label: str, default: Optional[str] = None) -> str:
+    while True:
+        v = Prompt.ask(label, default=default or "").strip()
+        if v:
+            return v
+        console.print("[red]Campo obbligatorio.[/]")
+
+
+def prompt_secret_required(label: str, allow_empty: bool = False) -> str:
+    while True:
+        v = Prompt.ask(label, password=True, default="").strip()
+        if v or allow_empty:
+            return v
+        console.print("[red]Campo obbligatorio.[/]")
+
+
+def backup_file(path: Path) -> Optional[Path]:
+    if not path.exists():
+        return None
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    bak = path.with_suffix(path.suffix + f".bak-{ts}")
+    shutil.copy2(path, bak)
+    return bak
+
+
+def safe_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+
+
+def run_cmd(cmd: List[str], cwd: Optional[Path] = None, env: Optional[Dict[str, str]] = None, timeout: int = 30) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def docker_available() -> Tuple[bool, bool]:
+    """Returns (installed, daemon_running)."""
+    try:
+        r = run_cmd(["docker", "--version"], timeout=5)
+        installed = (r.returncode == 0)
+    except Exception:
+        installed = False
+
+    if not installed:
+        return False, False
+
+    try:
+        r = run_cmd(["docker", "info"], timeout=10)
+        running = (r.returncode == 0)
+    except Exception:
+        running = False
+
+    return True, running
+
+
+def http_get(url: str, headers: Dict[str, str], timeout: int = 20) -> Tuple[bool, Any, str]:
+    try:
+        r = requests.get(url, headers=headers, timeout=timeout)
+        if 200 <= r.status_code < 300:
+            try:
+                return True, r.json(), ""
+            except Exception:
+                return True, r.text, ""
+        return False, None, f"HTTP {r.status_code}: {r.text[:250]}"
+    except Exception as e:
+        return False, None, str(e)
+
+
+def http_post(url: str, headers: Dict[str, str], payload: Dict[str, Any], timeout: int = 30) -> Tuple[bool, Any, str]:
+    try:
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        if 200 <= r.status_code < 300:
+            try:
+                return True, r.json(), ""
+            except Exception:
+                return True, r.text, ""
+        return False, None, f"HTTP {r.status_code}: {r.text[:250]}"
+    except Exception as e:
+        return False, None, str(e)
+
+
+def find_project_root() -> Path:
+    """
+    Heuristics:
+    - If we see server/pyproject.toml -> current is root
+    - If current is server/ with pyproject.toml -> parent is root
+    - Else walk parents; else fallback ~/.kg-mcp
+    """
+    cur = Path.cwd()
+
+    if (cur / "server" / "pyproject.toml").exists():
+        return cur
+    if (cur / "pyproject.toml").exists() and cur.name == "server":
+        return cur.parent
+
+    for p in cur.parents:
+        if (p / "server" / "pyproject.toml").exists():
+            return p
+        if (p / "docker-compose.yml").exists() and (p / "server").exists():
+            return p
+
+    home = Path.home() / ".kg-mcp"
+    home.mkdir(parents=True, exist_ok=True)
+    return home
+
+
+# -------------------------
+# Wizard
+# -------------------------
 class SetupWizard:
-    """Interactive setup wizard for MCP-KG-Memory."""
+    def __init__(self) -> None:
+        self.project_root = find_project_root()
+        self.env_path = self.project_root / ".env"
+        self.config: Dict[str, str] = {}
 
-    def __init__(self):
-        self.config = {}
-        self.project_root = self._find_project_root()
+    def run(self) -> None:
+        self._welcome()
+        self._step_llm()
+        self._step_neo4j()
+        self._step_security()
+        self._write_env()
+        self._optional_start_neo4j()
+        self._optional_apply_schema()
+        self._optional_antigravity()
+        self._summary()
 
-    def _find_project_root(self) -> Path:
-        """Find the project root directory or create one for pipx installations."""
-        current = Path.cwd()
-        
-        # Check if we're in the server directory
-        if (current / "pyproject.toml").exists() and (current / "src" / "kg_mcp").exists():
-            return current.parent
-        
-        # Check if we're in the project root
-        if (current / "server" / "pyproject.toml").exists():
-            return current
-        
-        # Check parent directories
-        for parent in current.parents:
-            if (parent / "server" / "pyproject.toml").exists():
-                return parent
-            if (parent / "docker-compose.yml").exists():
-                return parent
-        
-        # Not in a project directory - likely installed via pipx
-        # Use ~/.kg-mcp as the project root
-        kg_mcp_home = Path.home() / ".kg-mcp"
-        kg_mcp_home.mkdir(exist_ok=True)
-        
-        # Download docker-compose.yml if not present
-        dc_path = kg_mcp_home / "docker-compose.yml"
-        if not dc_path.exists():
-            self._download_docker_compose(dc_path)
-        
-        return kg_mcp_home
+    # -------------------------
+    # Step 0: Welcome
+    # -------------------------
+    def _welcome(self) -> None:
+        msg = f"""
+# 🧠 MCP-KG-Memory Setup Wizard — Gemini only (Direct + LiteLLM)
 
-    def _download_docker_compose(self, target_path: Path):
-        """Download docker-compose.yml from GitHub."""
-        import urllib.request
-        
-        console.print("  [dim]Downloading docker-compose.yml from GitHub...[/]")
-        
-        url = "https://raw.githubusercontent.com/Hexecu/mcp-neuralmemory/main/docker-compose.yml"
-        
-        try:
-            urllib.request.urlretrieve(url, target_path)
-            console.print(f"  [green]✓[/] Downloaded to {target_path}")
-        except Exception as e:
-            console.print(f"  [red]✗[/] Failed to download: {e}")
-            console.print("  [yellow]You can manually download from:[/]")
-            console.print(f"    [cyan]{url}[/]")
-            console.print(f"  [yellow]And save to: {target_path}[/]")
+Questo wizard crea una configurazione facile da usare.
 
-    def run(self):
-        """Run the complete setup wizard."""
-        self._print_welcome()
-        
-        try:
-            # Step 0: Verify Docker
-            self._check_docker()
-            
-            # Step 1: Neo4j Configuration
-            self._setup_neo4j()
-            
-            # Step 2: LLM Configuration
-            self._setup_llm()
-            
-            # Step 3: Security Configuration
-            self._setup_security()
-            
-            # Step 4: Generate .env file
-            self._generate_env_file()
-            
-            # Step 5: Start Neo4j if needed
-            if self.config.get("start_neo4j_docker"):
-                self._start_neo4j()
-            
-            # Step 6: Apply Schema
-            if self.config.get("apply_schema"):
-                self._apply_schema()
-            
-            # Step 7: Configure Antigravity
-            if Confirm.ask("\n[cyan]Configure Antigravity IDE integration?[/]", default=True):
-                self._configure_antigravity()
-            
-            # Step 8: Summary
-            self._print_summary()
-            
-        except KeyboardInterrupt:
-            console.print("\n\n[yellow]Setup cancelled.[/]")
-            sys.exit(1)
+**Supporta:**
+- ✅ Gemini Direct (AI Studio key)
+- ✅ Gemini via LiteLLM Gateway/Proxy (model prefix automatico)
 
-    def _print_welcome(self):
-        """Print welcome banner."""
-        welcome = """
-# 🧠 MCP-KG-Memory Setup Wizard
+**Output:**
+- `.env` in: `{self.env_path}`
 
-Welcome! This wizard will help you set up the Memory/Knowledge Graph MCP Server.
-
-**What you'll need:**
-- Docker (for local Neo4j) OR remote Neo4j credentials
-- LiteLLM Gateway credentials OR Gemini API key
-
-Let's get started!
-        """
-        console.print(Panel(Markdown(welcome), title="Setup Wizard", border_style="green"))
+Andiamo.
+        """.strip()
+        console.print(Panel(Markdown(msg), border_style="green"))
         console.print()
 
-    def _check_docker(self):
-        """Verify Docker is installed and running."""
-        console.print(Panel("[bold]Step 0: Docker Verification[/]", style="blue"))
-        
-        # Check if Docker is installed
-        try:
-            result = subprocess.run(
-                ["docker", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            docker_installed = result.returncode == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            docker_installed = False
-        
-        if not docker_installed:
-            console.print("  [red]✗[/] Docker is not installed")
-            console.print()
-            console.print("  [bold]Please install Docker Desktop:[/]")
-            if sys.platform == "darwin":
-                console.print("    [cyan]https://docs.docker.com/desktop/install/mac-install/[/]")
-            elif sys.platform == "win32":
-                console.print("    [cyan]https://docs.docker.com/desktop/install/windows-install/[/]")
-            else:
-                console.print("    [cyan]https://docs.docker.com/desktop/install/linux-install/[/]")
-            console.print()
-            if not Confirm.ask("Continue anyway (use remote Neo4j)?", default=False):
-                sys.exit(1)
-            return
-        
-        console.print("  [green]✓[/] Docker is installed")
-        
-        # Check if Docker daemon is running
-        try:
-            result = subprocess.run(
-                ["docker", "info"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            docker_running = result.returncode == 0
-        except subprocess.TimeoutExpired:
-            docker_running = False
-        
-        if not docker_running:
-            console.print("  [yellow]![/] Docker daemon is not running")
-            
-            if sys.platform == "darwin":
-                if Confirm.ask("Start Docker Desktop now?", default=True):
-                    console.print("  Starting Docker Desktop...")
-                    subprocess.run(["open", "-a", "Docker"], check=False)
-                    console.print("  [dim]Please wait for Docker to start (~30 seconds)...[/]")
-                    
-                    import time
-                    for i in range(30):
-                        time.sleep(1)
-                        try:
-                            result = subprocess.run(
-                                ["docker", "info"],
-                                capture_output=True,
-                                timeout=2,
-                            )
-                            if result.returncode == 0:
-                                console.print("  [green]✓[/] Docker is now running")
-                                break
-                        except Exception:
-                            pass
-                    else:
-                        console.print("  [yellow]![/] Docker is still starting, continuing anyway...")
-            else:
-                console.print("  [yellow]Please start Docker and run this wizard again[/]")
-                if not Confirm.ask("Continue anyway?", default=False):
-                    sys.exit(1)
+    # -------------------------
+    # Step 1: LLM
+    # -------------------------
+    def _step_llm(self) -> None:
+        console.print(Panel("[bold]Step 1: LLM (Gemini)[/]", border_style="blue"))
+
+        mode_opts = [
+            "Solo Gemini Direct (AI Studio)",
+            "Solo LiteLLM Gateway/Proxy (Gemini routed)",
+            "Configura ENTRAMBI (e scegli primario)",
+        ]
+        mode = choose_numeric("Che modalità vuoi configurare?", mode_opts, default_index=3)
+
+        if mode == 1:
+            self._setup_gemini_direct()
+            self.config["LLM_MODE"] = "gemini_direct"
+            self.config["LLM_PROVIDER"] = "gemini"
+            self.config["LLM_MODEL"] = self.config["GEMINI_MODEL"]
+        elif mode == 2:
+            self._setup_litellm_gemini()
+            self.config["LLM_MODE"] = "litellm"
+            self.config["LLM_PROVIDER"] = "litellm"
+            self.config["LLM_MODEL"] = self.config["LITELLM_MODEL"]
         else:
-            console.print("  [green]✓[/] Docker daemon is running")
-        
+            # both
+            self._setup_gemini_direct()
+            self._setup_litellm_gemini()
+
+            primary_opts = [
+                "Primario: Gemini Direct",
+                "Primario: LiteLLM",
+            ]
+            primary = choose_numeric("Quale vuoi usare come default primario?", primary_opts, default_index=2)
+            if primary == 1:
+                self.config["LLM_MODE"] = "both"
+                self.config["LLM_PRIMARY"] = "gemini_direct"
+                self.config["LLM_PROVIDER"] = "gemini"
+                self.config["LLM_MODEL"] = self.config["GEMINI_MODEL"]
+            else:
+                self.config["LLM_MODE"] = "both"
+                self.config["LLM_PRIMARY"] = "litellm"
+                self.config["LLM_PROVIDER"] = "litellm"
+                self.config["LLM_MODEL"] = self.config["LITELLM_MODEL"]
+
+        # Optional role-based models (useful for KG workloads)
+        if Confirm.ask("Vuoi configurare modelli diversi per RUOLO (default/fast/reason)?", default=True):
+            self._setup_role_models()
+
         console.print()
 
-    def _setup_neo4j(self):
-        """Configure Neo4j database."""
-        console.print(Panel("[bold]Step 1: Neo4j Database Configuration[/]", style="blue"))
-        
-        neo4j_mode = Prompt.ask(
-            "How would you like to run Neo4j?",
-            choices=["docker", "remote", "existing"],
-            default="docker"
-        )
-        
-        if neo4j_mode == "docker":
-            self.config["neo4j_uri"] = "bolt://localhost:7687"
-            self.config["neo4j_user"] = "neo4j"
-            
-            password = Prompt.ask(
-                "Neo4j password (leave empty for auto-generate)",
-                password=True,
-                default=""
-            )
-            if not password:
-                password = secrets.token_urlsafe(16)
-                console.print(f"  [green]✓[/] Generated password: [yellow]{password}[/]")
-            
-            self.config["neo4j_password"] = password
-            self.config["start_neo4j_docker"] = Confirm.ask(
-                "Start Neo4j Docker container now?",
-                default=True
-            )
-            
-        elif neo4j_mode == "remote":
-            self.config["neo4j_uri"] = Prompt.ask(
-                "Neo4j URI",
-                default="bolt://your-neo4j-host:7687"
-            )
-            self.config["neo4j_user"] = Prompt.ask("Username", default="neo4j")
-            self.config["neo4j_password"] = Prompt.ask("Password", password=True)
-            self.config["start_neo4j_docker"] = False
-            
-        else:  # existing
-            self.config["neo4j_uri"] = Prompt.ask(
-                "Neo4j URI",
-                default="bolt://localhost:7687"
-            )
-            self.config["neo4j_user"] = Prompt.ask("Username", default="neo4j")
-            self.config["neo4j_password"] = Prompt.ask("Password", password=True)
-            self.config["start_neo4j_docker"] = False
-        
-        self.config["apply_schema"] = Confirm.ask(
-            "Apply Neo4j schema (constraints/indexes)?",
-            default=True
-        )
-        
-        console.print()
+    def _setup_role_models(self) -> None:
+        # Pick from direct list (text oriented) and keep consistent with chosen backend.
+        # If primary is litellm, we store litellm-wrapped names; else direct names.
+        primary = self.config.get("LLM_PROVIDER", "litellm")
+        use_litellm_names = (primary == "litellm")
 
-    def _setup_llm(self):
-        """Configure LLM API."""
-        console.print(Panel("[bold]Step 2: LLM API Configuration[/]", style="blue"))
-        
-        llm_mode = Prompt.ask(
-            "LLM provider",
-            choices=["litellm_gateway", "gemini_direct"],
-            default="litellm_gateway"
-        )
-        
-        if llm_mode == "litellm_gateway":
-            self.config["litellm_base_url"] = Prompt.ask(
-                "LiteLLM Gateway URL",
-                default="https://your-litellm-gateway.io/"
-            )
-            self.config["litellm_api_key"] = Prompt.ask(
-                "LiteLLM API Key",
-                password=True
-            )
-            self.config["llm_model"] = Prompt.ask(
-                "Model name",
-                default="gemini-2.5-flash-preview-09-2025"
-            )
-            self.config["gemini_api_key"] = ""
-        else:
-            self.config["gemini_api_key"] = Prompt.ask(
-                "Gemini API Key (from https://aistudio.google.com)",
-                password=True
-            )
-            while True:
-                model = Prompt.ask(
-                    "Model name",
-                    default="gemini/gemini-1.5-flash"
-                )
-                if not model.startswith("gemini/"):
-                    console.print("  [yellow]![/] Warning: Gemini models usually start with 'gemini/' (e.g. gemini/gemini-1.5-flash)")
-                    if Confirm.ask("Use this name anyway?", default=False):
-                        self.config["llm_model"] = model
-                        break
+        def pick(title: str, default_model: str) -> str:
+            base = GEMINI_DIRECT_MODELS[:3] + ["(legacy/risky) " + m for m in GEMINI_LEGACY_OR_RISKY] + ["Custom..."]
+            idx = choose_numeric(title, base, default_index=1)
+            choice = base[idx - 1]
+            if choice == "Custom...":
+                m = prompt_required("Inserisci model id (es: gemini-2.5-flash)")
+            else:
+                if choice.startswith("(legacy/risky) "):
+                    m = choice.replace("(legacy/risky) ", "")
+                    console.print("[yellow]![/] Nota: questo modello potrebbe avere retirement/deprecation in alcuni servizi. Usalo solo se necessario.")
                 else:
-                    self.config["llm_model"] = model
-                    break
+                    m = choice
 
-            self.config["litellm_base_url"] = ""
-            self.config["litellm_api_key"] = ""
-        
+            if use_litellm_names:
+                return litellm_wrap(m)
+            return m
+
+        # Default recommendation: flash; fast: flash-lite; reason: pro
+        default_m = "gemini-2.5-flash"
+        fast_m = "gemini-2.5-flash-lite"
+        reason_m = "gemini-2.5-pro"
+
+        self.config["KG_MODEL_DEFAULT"] = pick("Scegli KG_MODEL_DEFAULT", default_m)
+        self.config["KG_MODEL_FAST"] = pick("Scegli KG_MODEL_FAST (operazioni veloci/high throughput)", fast_m)
+        self.config["KG_MODEL_REASON"] = pick("Scegli KG_MODEL_REASON (reasoning/diagnostica)", reason_m)
+
+    def _setup_gemini_direct(self) -> None:
+        console.print(Panel("[bold]Gemini Direct[/]", border_style="cyan"))
+
+        api_key = prompt_secret_required("GEMINI_API_KEY (da AI Studio)", allow_empty=False)
+        self.config["GEMINI_API_KEY"] = api_key
+        self.config["GEMINI_BASE_URL"] = "https://generativelanguage.googleapis.com/"
+
+        model_opts = [
+            "Scegli da lista consigliata (2.5 Flash/Pro/Flash-Lite)",
+            "Mostrami la lista LIVE dei modelli disponibili (richiede key)",
+            "Inserisci model id manualmente",
+        ]
+        pick_mode = choose_numeric("Come vuoi scegliere il modello?", model_opts, default_index=1)
+
+        if pick_mode == 1:
+            self.config["GEMINI_MODEL"] = self._pick_from_curated_direct()
+        elif pick_mode == 2:
+            live = self._gemini_list_models(api_key)
+            if live:
+                self.config["GEMINI_MODEL"] = self._pick_from_list("Scegli un modello (LIVE)", live, default="gemini-2.5-flash")
+            else:
+                console.print("[yellow]![/] Non sono riuscito a ottenere la lista LIVE. Uso lista consigliata.")
+                self.config["GEMINI_MODEL"] = self._pick_from_curated_direct()
+        else:
+            self.config["GEMINI_MODEL"] = prompt_required("Model id (es: gemini-2.5-flash)")
+
+        # Optional connectivity test
+        if Confirm.ask("Vuoi testare ora Gemini Direct (generateContent)?", default=True):
+            self._test_gemini_direct(api_key, self.config["GEMINI_MODEL"])
+
+    def _pick_from_curated_direct(self) -> str:
+        options = (
+            ["gemini-2.5-flash  (default consigliato)"]
+            + ["gemini-2.5-pro"]
+            + ["gemini-2.5-flash-lite"]
+            + ["Altri (preview/specializzati)..."]
+            + ["Legacy/risky (2.0)..."]
+            + ["Custom..."]
+        )
+        idx = choose_numeric("Seleziona categoria modello", options, default_index=1)
+
+        if idx == 1:
+            return "gemini-2.5-flash"
+        if idx == 2:
+            return "gemini-2.5-pro"
+        if idx == 3:
+            return "gemini-2.5-flash-lite"
+        if idx == 4:
+            return self._pick_from_list("Scegli (preview/specializzati)", GEMINI_DIRECT_MODELS[3:], default=GEMINI_DIRECT_MODELS[3])
+        if idx == 5:
+            console.print("[yellow]![/] Warning: alcuni servizi indicano retirement per 2.0 Flash/Flash-Lite entro il 2026. Usa 2.5 Flash-Lite come sostituto se puoi.")
+            return self._pick_from_list("Scegli (legacy/risky)", GEMINI_LEGACY_OR_RISKY, default=GEMINI_LEGACY_OR_RISKY[0])
+        return prompt_required("Model id custom (es: gemini-2.5-flash)")
+
+    def _gemini_list_models(self, api_key: str) -> List[str]:
+        # Gemini REST: GET v1beta/models?key=...
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+        ok, data, err = http_get(url, headers={"Content-Type": "application/json"})
+        if not ok:
+            console.print(f"[yellow]![/] GET models fallito: {err}")
+            return []
+        try:
+            models = data.get("models", [])
+            names: List[str] = []
+            for m in models:
+                name = m.get("name", "")  # "models/gemini-2.5-flash"
+                if name.startswith("models/"):
+                    name = name[len("models/") :]
+                if name:
+                    names.append(name)
+            # De-dup + stable ordering
+            names = sorted(set(names))
+            # prefer gemini-* first
+            names = sorted(names, key=lambda s: (0 if s.startswith("gemini-") else 1, s))
+            return names
+        except Exception:
+            console.print("[yellow]![/] Risposta ricevuta ma non parsabile come lista modelli.")
+            return []
+
+    def _test_gemini_direct(self, api_key: str, model: str) -> None:
+        # POST generateContent
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {"contents": [{"parts": [{"text": "ping (rispondi solo con 'pong')"}]}]}
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as p:
+            p.add_task(description="Test Gemini Direct...", total=None)
+            ok, data, err = http_post(url, headers={"Content-Type": "application/json"}, payload=payload, timeout=30)
+
+        if ok:
+            console.print("[green]✓[/] Gemini Direct OK.")
+            try:
+                txt = data["candidates"][0]["content"]["parts"][0]["text"]
+                console.print(f"  Reply: {txt!r}")
+            except Exception:
+                console.print("  (OK ma risposta inattesa)")
+        else:
+            console.print(f"[yellow]![/] Test fallito: {err}")
+
+    def _setup_litellm_gemini(self) -> None:
+        console.print(Panel("[bold]LiteLLM Gateway/Proxy (Gemini)[/]", border_style="cyan"))
+
+        base_url = prompt_required("LITELLM_BASE_URL (es: https://litellm.mycompany.com/ oppure http://localhost:4000/)")
+        base_url = normalize_url(base_url)
+        api_key = prompt_secret_required("LITELLM_API_KEY", allow_empty=False)
+
+        self.config["LITELLM_BASE_URL"] = base_url
+        self.config["LITELLM_API_KEY"] = api_key
+
+        # Model selection
+        model_opts = [
+            "Scegli da lista consigliata (Gemini 2.5) [prefix automatico gemini/...]",
+            "Prova a leggere la lista modelli dal Gateway (GET /v1/models) [se supportato]",
+            "Inserisci model id manualmente",
+        ]
+        pick_mode = choose_numeric("Come vuoi scegliere il modello (LiteLLM)?", model_opts, default_index=1)
+
+        if pick_mode == 1:
+            m = self._pick_from_curated_direct()
+            self.config["LITELLM_MODEL"] = litellm_wrap(m)
+        elif pick_mode == 2:
+            live = self._litellm_list_models(base_url, api_key)
+            if live:
+                picked = self._pick_from_list("Scegli un modello (Gateway)", live, default=self._best_default_from_gateway(live))
+                self.config["LITELLM_MODEL"] = picked
+                if not picked.startswith("gemini/"):
+                    console.print("[yellow]![/] Nota: il gateway ha restituito un id senza prefisso 'gemini/'. Lo userò così com'è.")
+            else:
+                console.print("[yellow]![/] Non sono riuscito a ottenere la lista dal gateway. Uso lista consigliata.")
+                m = self._pick_from_curated_direct()
+                self.config["LITELLM_MODEL"] = litellm_wrap(m)
+        else:
+            raw = prompt_required("Model id (LiteLLM). Esempio: gemini/gemini-2.5-flash")
+            # auto-fix if user pasted direct model
+            self.config["LITELLM_MODEL"] = litellm_wrap(raw) if raw.startswith("gemini-") else raw
+
+        # Optional connectivity test
+        if Confirm.ask("Vuoi testare ora LiteLLM (POST /v1/chat/completions)?", default=True):
+            self._test_litellm(base_url, api_key, self.config["LITELLM_MODEL"])
+
+    def _litellm_list_models(self, base_url: str, api_key: str) -> List[str]:
+        # common: /v1/models (OpenAI compatible)
+        url = base_url.rstrip("/") + "/v1/models"
+        ok, data, err = http_get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=20)
+        if not ok:
+            console.print(f"[yellow]![/] GET /v1/models fallito: {err}")
+            return []
+        try:
+            items = data.get("data", [])
+            ids = [it.get("id", "") for it in items if isinstance(it, dict)]
+            ids = [x for x in ids if x]
+            ids = sorted(set(ids))
+            return ids
+        except Exception:
+            console.print("[yellow]![/] Risposta /v1/models ricevuta ma non parsabile.")
+            return []
+
+    def _best_default_from_gateway(self, ids: List[str]) -> str:
+        # prefer gemini/gemini-2.5-flash if present
+        preferred = [
+            "gemini/gemini-2.5-flash",
+            "gemini/gemini-2.5-flash-lite",
+            "gemini/gemini-2.5-pro",
+        ]
+        for p in preferred:
+            if p in ids:
+                return p
+        return ids[0] if ids else "gemini/gemini-2.5-flash"
+
+    def _test_litellm(self, base_url: str, api_key: str, model: str) -> None:
+        url = base_url.rstrip("/") + "/v1/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping (rispondi solo con 'pong')"}],
+            "max_tokens": 16,
+        }
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as p:
+            p.add_task(description="Test LiteLLM...", total=None)
+            ok, data, err = http_post(
+                url,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                payload=payload,
+                timeout=30,
+            )
+
+        if ok:
+            console.print("[green]✓[/] LiteLLM OK.")
+            try:
+                txt = data["choices"][0]["message"]["content"]
+                console.print(f"  Reply: {txt!r}")
+            except Exception:
+                console.print("  (OK ma risposta inattesa)")
+        else:
+            console.print(f"[yellow]![/] Test fallito: {err}")
+
+    def _pick_from_list(self, title: str, items: List[str], default: str) -> str:
+        # build numeric menu for up to N entries, else provide pagination-ish
+        if not items:
+            return default
+
+        # Put default first if exists
+        items_sorted = items[:]
+        if default in items_sorted:
+            items_sorted.remove(default)
+            items_sorted.insert(0, default)
+
+        # If huge list, show first 40 + custom
+        max_show = 40
+        shown = items_sorted[:max_show]
+        options = shown + ["Custom..."]
+        idx = choose_numeric(title, options, default_index=1)
+        if idx == len(options):
+            return prompt_required("Model id custom")
+        return options[idx - 1]
+
+    # -------------------------
+    # Step 2: Neo4j
+    # -------------------------
+    def _step_neo4j(self) -> None:
+        console.print(Panel("[bold]Step 2: Neo4j[/]", border_style="blue"))
+
+        opts = [
+            "Docker locale (compose auto se manca)",
+            "Neo4j remoto (inserisco URI/user/pass)",
+            "Skip Neo4j (lo configuro dopo)",
+        ]
+        c = choose_numeric("Come vuoi configurare Neo4j?", opts, default_index=1)
+
+        if c == 3:
+            self.config["NEO4J_CONFIGURED"] = "0"
+            console.print("[yellow]Neo4j skipped.[/]\n")
+            return
+
+        self.config["NEO4J_CONFIGURED"] = "1"
+
+        if c == 1:
+            self.config["NEO4J_URI"] = "bolt://localhost:7687"
+            self.config["NEO4J_USER"] = "neo4j"
+            pw = Prompt.ask("Password Neo4j (invio = genera)", password=True, default="").strip()
+            if not pw:
+                pw = secrets.token_urlsafe(18)
+                console.print(f"[green]✓[/] Password Neo4j generata: [yellow]{pw}[/]")
+            self.config["NEO4J_PASSWORD"] = pw
+
+            installed, running = docker_available()
+            self.config["NEO4J_DOCKER_ENABLED"] = "1" if installed else "0"
+            self.config["NEO4J_DOCKER_AUTOSTART"] = "1" if (installed and running and Confirm.ask("Avvio Neo4j ora?", default=True)) else "0"
+        else:
+            self.config["NEO4J_URI"] = prompt_required("NEO4J_URI (bolt://host:7687)", default="bolt://your-neo4j-host:7687")
+            self.config["NEO4J_USER"] = Prompt.ask("NEO4J_USER", default="neo4j").strip() or "neo4j"
+            self.config["NEO4J_PASSWORD"] = prompt_secret_required("NEO4J_PASSWORD", allow_empty=False)
+            self.config["NEO4J_DOCKER_ENABLED"] = "0"
+            self.config["NEO4J_DOCKER_AUTOSTART"] = "0"
+
+        # Always apply schema (best practice)
+        self.config["NEO4J_APPLY_SCHEMA"] = "1"
+        console.print("[dim]Schema (constraints/indexes) will be applied automatically.[/]")
         console.print()
 
-    def _setup_security(self):
-        """Configure security settings."""
-        console.print(Panel("[bold]Step 3: Security Configuration[/]", style="blue"))
-        
-        token = Prompt.ask(
-            "MCP authentication token (leave empty for auto-generate)",
-            password=True,
-            default=""
-        )
+    # -------------------------
+    # Step 3: Security
+    # -------------------------
+    def _step_security(self) -> None:
+        console.print(Panel("[bold]Step 3: Security[/]", border_style="blue"))
+
+        token = Prompt.ask("MCP auth token (invio = genera)", password=True, default="").strip()
         if not token:
             token = f"kg-mcp-{secrets.token_urlsafe(24)}"
-            console.print(f"  [green]✓[/] Generated token: [yellow]{token}[/]")
-        
-        self.config["kg_mcp_token"] = token
-        self.config["allowed_origins"] = "localhost,127.0.0.1"
-        
+            console.print("[green]✓[/] Token generato.")
+        self.config["KG_MCP_TOKEN"] = token
+
+        # safe defaults
+        self.config["MCP_HOST"] = "127.0.0.1"
+        self.config["MCP_PORT"] = "8000"
+        self.config["LOG_LEVEL"] = "INFO"
+        self.config["KG_ALLOWED_ORIGINS"] = "localhost,127.0.0.1"
         console.print()
 
-    def _generate_env_file(self):
-        """Generate .env file."""
-        console.print(Panel("[bold]Step 4: Generating Configuration[/]", style="blue"))
-        
-        env_path = self.project_root / ".env"
-        
-        env_content = f"""# MCP-KG-Memory Configuration
-# Generated by kg-mcp-setup wizard
+    # -------------------------
+    # Write .env
+    # -------------------------
+    def _write_env(self) -> None:
+        console.print(Panel("[bold]Step 4: Genero .env[/]", border_style="blue"))
 
-# Neo4j Database
-NEO4J_URI={self.config['neo4j_uri']}
-NEO4J_USER={self.config['neo4j_user']}
-NEO4J_PASSWORD={self.config['neo4j_password']}
+        if self.env_path.exists():
+            bak = backup_file(self.env_path)
+            console.print(f"[yellow]![/] Esiste già .env → backup creato: {bak}")
 
-# LLM Configuration
-LITELLM_BASE_URL={self.config.get('litellm_base_url', '')}
-LITELLM_API_KEY={self.config.get('litellm_api_key', '')}
-GEMINI_API_KEY={self.config.get('gemini_api_key', '')}
-LLM_MODEL={self.config['llm_model']}
+        # Stable ordering (grouped)
+        groups: List[Tuple[str, List[str]]] = [
+            ("# --- MCP ---", ["MCP_HOST", "MCP_PORT", "LOG_LEVEL", "KG_MCP_TOKEN", "KG_ALLOWED_ORIGINS"]),
+            ("# --- LLM (primary) ---", ["LLM_MODE", "LLM_PRIMARY", "LLM_PROVIDER", "LLM_MODEL"]),
+            ("# --- Gemini Direct ---", ["GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_BASE_URL"]),
+            ("# --- LiteLLM (Gemini) ---", ["LITELLM_BASE_URL", "LITELLM_API_KEY", "LITELLM_MODEL"]),
+            ("# --- KG Role Models (optional) ---", ["KG_MODEL_DEFAULT", "KG_MODEL_FAST", "KG_MODEL_REASON"]),
+            ("# --- Neo4j ---", ["NEO4J_CONFIGURED", "NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "NEO4J_DOCKER_ENABLED", "NEO4J_DOCKER_AUTOSTART", "NEO4J_APPLY_SCHEMA"]),
+        ]
 
-# MCP Server
-MCP_HOST=127.0.0.1
-MCP_PORT=8000
-LOG_LEVEL=INFO
+        lines: List[str] = ["# Generated by MCP-KG-Memory setup wizard", ""]
+        for header, keys in groups:
+            present = [k for k in keys if k in self.config and self.config[k] != ""]
+            if not present:
+                continue
+            lines.append(header)
+            for k in keys:
+                if k in self.config and self.config[k] != "":
+                    lines.append(f"{k}={self.config[k]}")
+            lines.append("")
 
-# Security
-KG_MCP_TOKEN={self.config['kg_mcp_token']}
-KG_ALLOWED_ORIGINS={self.config['allowed_origins']}
+        safe_write_text(self.env_path, "\n".join(lines).rstrip() + "\n")
+        console.print(f"[green]✓[/] Scritto: {self.env_path}")
+        console.print()
+
+    # -------------------------
+    # Optional: start Neo4j via Docker
+    # -------------------------
+    def _optional_start_neo4j(self) -> None:
+        if self.config.get("NEO4J_DOCKER_AUTOSTART") != "1":
+            return
+
+        console.print(Panel("[bold]Step 5: Avvio Neo4j (Docker)[/]", border_style="blue"))
+
+        installed, running = docker_available()
+        if not installed:
+            console.print("[red]✗ Docker non installato.[/]")
+            return
+        if not running:
+            console.print("[red]✗ Docker daemon non in esecuzione. Avvia Docker Desktop e rilancia.[/]")
+            return
+
+        compose_path = self.project_root / "docker-compose.yml"
+        if not compose_path.exists():
+            self._write_minimal_compose(compose_path)
+
+        # Ensure password is set in compose or via env
+        env = os.environ.copy()
+        env["NEO4J_AUTH"] = f"neo4j/{self.config.get('NEO4J_PASSWORD','')}"
+        cmd = ["docker", "compose", "up", "-d", "neo4j"]
+
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as p:
+            p.add_task(description="Avvio container neo4j...", total=None)
+            r = run_cmd(cmd, cwd=self.project_root, env=env, timeout=120)
+
+        if r.returncode == 0:
+            console.print("[green]✓[/] Neo4j avviato.")
+            console.print("[dim]Attendo 10s per startup...[/]")
+            time.sleep(10)
+            console.print("[dim]Neo4j Browser: http://localhost:7474[/]")
+        else:
+            console.print("[red]✗ Avvio fallito[/]")
+            console.print(r.stderr[:400])
+
+        console.print()
+
+    def _write_minimal_compose(self, path: Path) -> None:
+        pw = self.config.get("NEO4J_PASSWORD", "neo4j")
+        content = f"""version: "3.9"
+services:
+  neo4j:
+    image: neo4j:5
+    container_name: kg-neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/{pw}
+      - NEO4J_server_memory_pagecache_size=512M
+      - NEO4J_server_memory_heap_initial__size=512M
+      - NEO4J_server_memory_heap_max__size=1024M
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+volumes:
+  neo4j_data:
+  neo4j_logs:
 """
-        
-        env_path.write_text(env_content)
-        console.print(f"  [green]✓[/] Created: {env_path}")
-        
-        # Also update docker-compose if needed
-        if self.config.get("start_neo4j_docker"):
-            self._update_docker_compose()
-        
-        console.print()
+        safe_write_text(path, content)
+        console.print(f"[green]✓[/] Creato docker-compose.yml minimale: {path}")
 
-    def _update_docker_compose(self):
-        """Update docker-compose.yml with correct password."""
-        dc_path = self.project_root / "docker-compose.yml"
-        if dc_path.exists():
-            content = dc_path.read_text()
-            # Update the password in docker-compose if present
-            if "NEO4J_AUTH" in content:
-                import re
-                new_auth = f"NEO4J_AUTH=neo4j/{self.config['neo4j_password']}"
-                content = re.sub(
-                    r"NEO4J_AUTH=neo4j/[^\s\"']*",
-                    new_auth,
-                    content
-                )
-                dc_path.write_text(content)
-                console.print(f"  [green]✓[/] Updated: {dc_path}")
+    # -------------------------
+    # Optional: apply schema
+    # -------------------------
+    def _optional_apply_schema(self) -> None:
+        if self.config.get("NEO4J_APPLY_SCHEMA") != "1":
+            return
 
-    def _start_neo4j(self):
-        """Start Neo4j Docker container."""
-        console.print(Panel("[bold]Step 5: Starting Neo4j[/]", style="blue"))
+        console.print(Panel("[bold]Step 6: Apply Neo4j schema (opzionale)[/]", border_style="blue"))
+
+        # Try running module if present
+        server_dir = self.project_root / "server"
+        cwd = server_dir if server_dir.exists() else self.project_root
+
+        env = os.environ.copy()
+        for k in ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"]:
+            if k in self.config:
+                env[k] = self.config[k]
         
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Starting Neo4j container...", total=None)
-            
+        # Add server/src to PYTHONPATH so kg_mcp is found
+        src_dir = server_dir / "src"
+        if src_dir.exists():
+             current_path = env.get("PYTHONPATH", "")
+             env["PYTHONPATH"] = f"{src_dir.absolute()}{os.pathsep}{current_path}"
+
+        cmd = [sys.executable, "-m", "kg_mcp.kg.apply_schema"]
+
+        with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as p:
+            p.add_task(description="Applico schema...", total=None)
             try:
-                # First, set the password in environment
-                env = os.environ.copy()
-                env["NEO4J_AUTH"] = f"neo4j/{self.config['neo4j_password']}"
-                
-                # Ensure docker-compose.yml exists
-                if not (self.project_root / "docker-compose.yml").exists():
-                    console.print("  [yellow]![/] docker-compose.yml not found, trying to download...[/]")
-                    self._download_docker_compose(self.project_root / "docker-compose.yml")
-
-                result = subprocess.run(
-                    ["docker", "compose", "up", "-d", "neo4j"],
-                    cwd=self.project_root,
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                )
-                
-                if result.returncode == 0:
-                    console.print("  [green]✓[/] Neo4j container started")
-                    console.print("  [dim]Waiting for Neo4j to be ready (30s)...[/]")
-                    
-                    # Wait for Neo4j to be healthy
-                    import time
-                    time.sleep(30)
+                r = run_cmd(cmd, cwd=cwd, env=env, timeout=120)
+                if r.returncode == 0:
+                    console.print("[green]✓[/] Schema applicato.")
                 else:
-                    console.print(f"  [red]✗[/] Failed to start: {result.stderr}")
-                    
-            except FileNotFoundError:
-                console.print("  [red]✗[/] Docker not found. Please install Docker first.")
-        
-        console.print()
-
-    def _apply_schema(self):
-        """Apply Neo4j schema."""
-        console.print(Panel("[bold]Step 6: Applying Neo4j Schema[/]", style="blue"))
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Applying schema...", total=None)
-            
-            try:
-                # Load environment
-                env = os.environ.copy()
-                env.update({
-                    "NEO4J_URI": self.config["neo4j_uri"],
-                    "NEO4J_USER": self.config["neo4j_user"],
-                    "NEO4J_PASSWORD": self.config["neo4j_password"],
-                })
-                
-                # Determine correct CWD
-                cwd = self.project_root / "server"
-                if not cwd.exists():
-                    cwd = self.project_root
-
-                result = subprocess.run(
-                    [sys.executable, "-m", "kg_mcp.kg.apply_schema"],
-                    cwd=cwd,
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                )
-                
-                if result.returncode == 0:
-                    console.print("  [green]✓[/] Schema applied successfully")
-                else:
-                    console.print(f"  [yellow]![/] Schema application had issues: {result.stderr[:200]}")
-                    
+                    console.print("[yellow]![/] apply_schema ha restituito errori (potrebbe non essere presente nel progetto):")
+                    console.print((r.stderr or r.stdout)[:500])
             except Exception as e:
-                console.print(f"  [red]✗[/] Failed: {e}")
-        
+                console.print("[yellow]![/] Impossibile eseguire apply_schema (modulo mancante o errore runtime).")
+                console.print(str(e)[:300])
+
         console.print()
 
-    def _configure_antigravity(self):
-        """Configure Antigravity IDE integration."""
-        console.print(Panel("[bold]Step 7: Antigravity IDE Configuration[/]", style="blue"))
-        
-        # Find Antigravity config
-        antigravity_config_path = Path.home() / ".gemini" / "antigravity" / "mcp_config.json"
-        
-        if not antigravity_config_path.parent.exists():
-            console.print("  [yellow]![/] Antigravity config directory not found")
-            console.print(f"    Expected: {antigravity_config_path.parent}")
-            if not Confirm.ask("Create it?", default=True):
-                return
-            antigravity_config_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Load existing config
-        existing_config = {}
-        if antigravity_config_path.exists():
+    # -------------------------
+    # Optional: Antigravity config
+    # -------------------------
+    def _optional_antigravity(self) -> None:
+        if not Confirm.ask("Vuoi aggiornare Antigravity MCP config?", default=True):
+            return
+
+        console.print(Panel("[bold]Step 7: Antigravity MCP config[/]", border_style="blue"))
+
+        cfg_path = Path.home() / ".gemini" / "antigravity" / "mcp_config.json"
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+
+        existing: Dict[str, Any] = {}
+        if cfg_path.exists():
             try:
-                existing_config = json.loads(antigravity_config_path.read_text())
-            except json.JSONDecodeError:
-                pass
-        
-        # Build kg-memory config
-        server_venv = self.project_root / "server" / ".venv" / "bin" / "python"
-        if not server_venv.exists():
-            server_venv = Path(sys.executable)
-        
-        kg_memory_config = {
-            "command": str(server_venv),
-            "args": ["-m", "kg_mcp", "--transport", "stdio"],
-            "env": {
-                "NEO4J_URI": self.config["neo4j_uri"],
-                "NEO4J_USER": self.config["neo4j_user"],
-                "NEO4J_PASSWORD": self.config["neo4j_password"],
-                "KG_MCP_TOKEN": self.config["kg_mcp_token"],
-                "LLM_MODEL": self.config["llm_model"],
-                "LOG_LEVEL": "INFO",
-            }
+                existing = json.loads(cfg_path.read_text(encoding="utf-8"))
+            except Exception:
+                existing = {}
+
+        # Determine python command to run kg_mcp (prefer venv if exists)
+        venv_python = self.project_root / "server" / ".venv" / ("Scripts" if sys.platform.startswith("win") else "bin") / ("python.exe" if sys.platform.startswith("win") else "python")
+        python_cmd = str(venv_python) if venv_python.exists() else sys.executable
+
+        # Build env for server execution via stdio
+        env = {
+            "LOG_LEVEL": self.config.get("LOG_LEVEL", "INFO"),
+            "KG_MCP_TOKEN": self.config.get("KG_MCP_TOKEN", ""),
+            "LLM_MODE": self.config.get("LLM_MODE", ""),
+            "LLM_PRIMARY": self.config.get("LLM_PRIMARY", ""),
+            "LLM_PROVIDER": self.config.get("LLM_PROVIDER", ""),
+            "LLM_MODEL": self.config.get("LLM_MODEL", ""),
         }
-        
-        # Add LLM config
-        if self.config.get("litellm_base_url"):
-            kg_memory_config["env"]["LITELLM_BASE_URL"] = self.config["litellm_base_url"]
-            kg_memory_config["env"]["LITELLM_API_KEY"] = self.config["litellm_api_key"]
-        elif self.config.get("gemini_api_key"):
-            kg_memory_config["env"]["GEMINI_API_KEY"] = self.config["gemini_api_key"]
-        
-        # Merge with existing config
-        if "mcpServers" not in existing_config:
-            existing_config["mcpServers"] = {}
-        
-        existing_config["mcpServers"]["kg-memory"] = kg_memory_config
-        
-        # Write config
-        antigravity_config_path.write_text(json.dumps(existing_config, indent=4))
-        console.print(f"  [green]✓[/] Updated: {antigravity_config_path}")
-        
-        console.print()
-        console.print("  [bold]Next steps in Antigravity:[/]")
-        console.print("  1. Open Agent sidebar → ... → MCP Servers")
-        console.print("  2. Click 'Manage MCP Servers' → 'Refresh'")
-        console.print("  3. You should see 'kg-memory' with 5 tools")
-        console.print()
 
-    def _print_summary(self):
-        """Print setup summary."""
-        console.print()
-        console.print(Panel("[bold green]✓ Setup Complete![/]", style="green"))
-        
-        table = Table(title="Configuration Summary")
-        table.add_column("Setting", style="cyan")
-        table.add_column("Value", style="green")
-        
-        table.add_row("Neo4j URI", self.config["neo4j_uri"])
-        table.add_row("Neo4j User", self.config["neo4j_user"])
-        table.add_row("LLM Model", self.config["llm_model"])
-        table.add_row("Auth Token", f"{self.config['kg_mcp_token'][:20]}...")
-        table.add_row(".env File", str(self.project_root / ".env"))
-        
+        # LLM vars
+        for k in [
+            "GEMINI_API_KEY",
+            "GEMINI_MODEL",
+            "GEMINI_BASE_URL",
+            "LITELLM_BASE_URL",
+            "LITELLM_API_KEY",
+            "LITELLM_MODEL",
+            "KG_MODEL_DEFAULT",
+            "KG_MODEL_FAST",
+            "KG_MODEL_REASON",
+        ]:
+            if k in self.config and self.config[k] != "":
+                env[k] = self.config[k]
+
+        # Neo4j vars
+        for k in ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD"]:
+            if k in self.config and self.config[k] != "":
+                env[k] = self.config[k]
+
+        server_cfg = {
+            "command": python_cmd,
+            "args": ["-m", "kg_mcp", "--transport", "stdio"],
+            "env": env,
+        }
+
+        if "mcpServers" not in existing or not isinstance(existing["mcpServers"], dict):
+            existing["mcpServers"] = {}
+        existing["mcpServers"]["kg-memory"] = server_cfg
+
+        backup_file(cfg_path)
+        safe_write_text(cfg_path, json.dumps(existing, indent=2))
+        console.print(f"[green]✓[/] Aggiornato: {cfg_path}")
+
+        console.print("\n[bold]In Antigravity:[/]")
+        console.print("1) Apri sidebar Agent → MCP Servers")
+        console.print("2) Manage/Refresh")
+        console.print("3) Dovresti vedere 'kg-memory'\n")
+
+    # -------------------------
+    # Summary
+    # -------------------------
+    def _summary(self) -> None:
+        console.print(Panel("[bold green]✓ Setup completato[/]", border_style="green"))
+
+        table = Table(title="Riepilogo", show_header=True, header_style="bold cyan")
+        table.add_column("Chiave", style="cyan")
+        table.add_column("Valore", style="green")
+
+        # show key info
+        show_keys = [
+            "LLM_MODE",
+            "LLM_PRIMARY",
+            "LLM_PROVIDER",
+            "LLM_MODEL",
+            "GEMINI_MODEL",
+            "LITELLM_MODEL",
+            "NEO4J_URI",
+            "MCP_HOST",
+            "MCP_PORT",
+            "LOG_LEVEL",
+            "KG_MCP_TOKEN",
+            "ENV_PATH",
+        ]
+
+        temp = dict(self.config)
+        temp["ENV_PATH"] = str(self.env_path)
+
+        for k in show_keys:
+            if k not in temp or temp[k] == "":
+                continue
+            v = temp[k]
+            if "KEY" in k or "PASSWORD" in k or "TOKEN" in k:
+                v = mask(v, keep=6)
+            table.add_row(k, v)
+
         console.print(table)
-        
-        # Neo4j Browser info
-        if self.config.get("start_neo4j_docker") or "localhost" in self.config.get("neo4j_uri", ""):
-            console.print()
-            console.print(Panel(
-                "[bold]Neo4j Browser[/]\n\n"
-                f"URL: [cyan]http://localhost:7474[/]\n"
-                f"Username: [green]{self.config['neo4j_user']}[/]\n"
-                f"Password: [green]{self.config['neo4j_password']}[/]\n\n"
-                "[dim]Use this to visualize your knowledge graph![/]",
-                title="📊 Graph Visualization",
-                style="green"
-            ))
-        
-        console.print()
-        console.print("[bold]Quick Start Commands:[/]")
-        console.print()
-        console.print("  # Check system status")
-        console.print("  [cyan]kg-mcp-status[/]")
-        console.print()
-        console.print("  # Fix common issues")
-        console.print("  [cyan]kg-mcp-status --doctor[/]")
-        console.print()
-        console.print("  # Start the MCP server (HTTP mode)")
-        console.print(f"  [cyan]cd {self.project_root}/server && kg-mcp --transport http[/]")
-        console.print()
-        
-        # Docker auto-start tip
-        if sys.platform == "darwin":  # macOS
-            console.print()
-            console.print("[bold yellow]💡 Tip: Enable Docker auto-start[/]")
-            console.print("  Docker Desktop → Settings → General → 'Start Docker Desktop when you sign in'")
-            console.print("  This ensures Neo4j is always available after reboot.")
-        
-        console.print()
 
-
-def main():
-    """Entry point for kg-mcp-setup command."""
-    wizard = SetupWizard()
-    wizard.run()
+        if self.config.get("NEO4J_DOCKER_AUTOSTART") == "1":
+            console.print("\n[dim]Neo4j Browser: http://localhost:7474 (user neo4j)[/]")
+        console.print(f"\n[bold]File .env:[/] {self.env_path}\n")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        SetupWizard().run()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrotto dall'utente.[/]")
+        sys.exit(1)

@@ -35,25 +35,54 @@ class LLMClient:
 
     def __init__(self):
         self.settings = get_settings()
-        self.model = self.settings.llm_model
-        
-        # Configure LiteLLM based on available credentials
-        # Priority: LiteLLM Gateway > Direct Gemini
-        if self.settings.litellm_base_url and self.settings.litellm_api_key:
-            # Using LiteLLM Gateway/Proxy
-            self.api_base = self.settings.litellm_base_url.rstrip("/")
-            self.api_key = self.settings.litellm_api_key
-            logger.info(f"Using LiteLLM Gateway at {self.api_base}")
-        elif self.settings.gemini_api_key:
-            # Direct Gemini API
-            self.api_base = None
-            self.api_key = self.settings.gemini_api_key
-            litellm.api_key = self.settings.gemini_api_key
-            logger.info("Using direct Gemini API")
+
+        # Determine active mode and primary provider
+        mode = self.settings.llm_mode
+        primary = self.settings.llm_primary
+
+        if mode == "gemini_direct" or (mode == "both" and primary == "gemini_direct"):
+            self._configure_gemini_direct()
+        elif mode == "litellm" or (mode == "both" and primary == "litellm"):
+            self._configure_litellm()
         else:
-            self.api_base = None
-            self.api_key = None
-            logger.warning("No LLM API credentials configured!")
+            # Fallback (legacy behavior)
+            if self.settings.litellm_base_url and self.settings.litellm_api_key:
+                self._configure_litellm()
+            elif self.settings.gemini_api_key:
+                self._configure_gemini_direct()
+            else:
+                self.api_base = None
+                self.api_key = None
+                self.model = self.settings.llm_model  # fallback
+                logger.warning("No LLM API credentials configured!")
+
+    def _configure_gemini_direct(self):
+        """Configure for Gemini Direct API."""
+        self.provider = "gemini"
+        self.api_base = None
+        self.api_key = self.settings.gemini_api_key
+        # For Gemini Direct via LiteLLM library, we might need to set the environment variable
+        # or pass it explicitly. LiteLLM supports 'gemini/' prefix with GEMINI_API_KEY env.
+        litellm.api_key = self.settings.gemini_api_key
+        
+        # Use specific gemini model if set, else fallback
+        self.model = self.settings.gemini_model or self.settings.llm_model
+        
+        # If model doesn't start with gemini/, prepend it for LiteLLM
+        if not self.model.startswith("gemini/") and "gemini" in self.model:
+             self.model = f"gemini/{self.model}"
+             
+        logger.info(f"Using Direct Gemini API with model {self.model}")
+
+    def _configure_litellm(self):
+        """Configure for LiteLLM Gateway."""
+        self.provider = "litellm"
+        self.api_base = self.settings.litellm_base_url.rstrip("/")
+        self.api_key = self.settings.litellm_api_key
+        
+        # Use specific litellm model if set, else fallback
+        self.model = self.settings.litellm_model or self.settings.llm_model
+        logger.info(f"Using LiteLLM Gateway at {self.api_base} with model {self.model}")
 
     async def extract_entities(
         self,

@@ -1,570 +1,185 @@
-# MCP-KG-Memory
+# 🧠 MCP-KG-Memory
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-green.svg)
-![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)
-![MCP](https://img.shields.io/badge/MCP-1.0+-purple.svg)
+![License](https://img.shields.io/badge/license-Apache_2.0-orange.svg)
+![Neo4j](https://img.shields.io/badge/neo4j-5.x-blueviolet.svg)
+![MCP](https://img.shields.io/badge/MCP-Standard-purple.svg)
 
-**Memory/Knowledge Graph MCP Server for AI Coding Assistants**
+**The Long-Term Memory Layer for AI Coding Agents**
 
-*Persistent context, goals, preferences, and knowledge for IDE agents*
+*Give your AI Assistant a brain that persists context, learns from past mistakes, and understands your project's goals.*
 
-[Quick Start](#-quick-start) • [Features](#-features) • [IDE Setup](#-ide-configuration) • [API Reference](#-mcp-tools) • [Contributing](#-contributing)
+[Quick Start](#-quick-start) • [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [License](#-license)
 
 </div>
 
 ---
 
-## 🎯 What is MCP-KG-Memory?
+## 📖 Overview
 
-MCP-KG-Memory is a **Model Context Protocol (MCP) server** that provides persistent memory and knowledge management for AI coding assistants. It solves the problem of AI agents "forgetting" context between sessions by:
+**MCP-KG-Memory** is a production-grade **Model Context Protocol (MCP) Server** designed to solve the "context amnesia" problem in AI coding assistants (Cursor, Windsurf, VS Code, Antigravity).
 
-- **Extracting structured information** from every user request (goals, constraints, preferences)
-- **Building a knowledge graph** in Neo4j that persists across sessions
-- **Providing context packs** to AI agents so they never lose track of what matters
-- **Tracking code artifacts** and their relationships to goals for impact analysis
+Instead of starting from zero every session, this system maintains a persistent **Knowledge Graph** of your project. It acts as an active memory layer that tracks:
+- **🎯 Goals & Status:** What are we building? What is done?
+- **🛑 Constraints & Rules:** Architectural decisions, forbidden patterns.
+- **💡 Strategies & Outcomes:** What worked? What failed? (Automatic learning)
+- **❤️ User Preferences:** How do you like your code written?
+- **🔗 Code Relationships:** Semantic links between goals and specific files.
 
-### Why Use This?
+### 📸 Visualization
+*Real-time visualization of the Knowledge Graph memory structure.*
 
-| Without KG-Memory | With KG-Memory |
-|-------------------|----------------|
-| AI forgets previous context | Persistent memory across sessions |
-| Repeated explanations needed | Learns your preferences once |
-| No goal tracking | Structured goal management |
-| Manual context switching | Automatic context packs |
-| Unknown code impact | Impact analysis on changes |
+![Knowledge Graph Visualization](assets/images/graph-viz.png)
 
 ---
 
 ## ✨ Features
 
-### 🧠 Intelligent Ingestion
-Analyzes every user request with Gemini LLM to extract:
-- **Goals** with priority, status, and acceptance criteria
-- **Constraints** (time, technical, budget)
-- **Preferences** (coding style, architecture choices)
-- **Pain Points** and blockers
-- **Strategies** and approaches
+### 🧠 Active Context Injection (`kg_autopilot`)
+Every time you start a task, the agent consults the memory. It automatically retrieves:
+- Active goals relevant to your current work.
+- Past failed attempts (to avoid repeating them) and successful strategies.
+- Your specific coding preferences (SOLID, Clean Arch, etc.).
 
-### 📦 Context Packs
-At each request, navigate the knowledge graph and return:
-- Active goals with acceptance criteria
-- User preferences and coding guidelines
-- Open pain points and blockers
-- Related code artifacts
+### 🔍 Semantic & Graph Search
+Don't just grep strings. The system traverses the graph (k-hops) to find connected context.
+*"I'm working on Auth"* → Retrieval includes User model, JWT utility, and the relevant security constraints defined 2 weeks ago.
 
-### 🔗 Code Graph
-Map files → symbols → references for:
-- Goal-to-code traceability
-- Impact analysis on changes
-- Test coverage tracking
+### 📝 Strategic Learning
+The system isn't static. It learns:
+- **Implicit Learning:** Infers strategies and patterns from your conversations.
+- **Outcome Tracking:** Remembers if a strategy "Success" or "Failure" to guide future decisions.
 
-### 🔍 Hybrid Retrieval
-- Graph traversal with k-hop neighbors
-- Full-text search across all entities
-- Semantic search (optional, with embeddings)
+### ⚡ Technology Stack
+- **Core:** Python 3.11+
+- **Database:** Neo4j (Graph Database)
+- **LLM:** Google Gemini 2.5 (via Direct API or LiteLLM Gateway)
+- **Protocol:** Model Context Protocol (MCP)
 
 ---
 
-## 📋 Prerequisites
+## 🚀 Installation
 
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| **Python** | 3.11+ | Required |
-| **Docker** | Latest | For local Neo4j |
-| **Neo4j** | 5.x | Provided via Docker or remote |
-| **LLM API** | - | LiteLLM Gateway or Gemini API key |
+You can install `kg-mcp` globally using `pipx` (recommended) or in a local virtual environment.
 
----
+### Prerequisites
 
-## 🚀 Quick Start
+- **Python 3.11+**
+- **Docker** (for running Neo4j locally)
+- **Gemini API Key** ([Get Key from Google AI Studio](https://aistudio.google.com/api-keys))
 
-### Option 1: One-Line Installation (Recommended)
-
-Requires [pipx](https://github.com/pypa/pipx) (see below if you don't have it).
+### Option 1: One-Line Install (Recommended)
 
 ```bash
+# Install the package
 pipx install kg-mcp
+
+# Run the interactive Setup Wizard
 kg-mcp-setup
 ```
 
-The setup wizard will automatically:
-1. Verify Docker installation
-2. Download the Neo4j `docker-compose.yml`
-3. Configure your LLM credentials (Gemini/LiteLLM)
-4. Set up security tokens
-5. Provide IDE configuration JSON
+The wizard will:
+1.  Check for Docker and Neo4j.
+2.  Ask for your **Gemini API Key**.
+3.  Configure the **LLM Mode** (Direct vs LiteLLM).
+4.  Generate a secure `.env` file.
 
-#### Don't have `pipx`?
-
-<details>
-<summary>Click to see installation commands</summary>
-
-**macOS:**
-```bash
-brew install pipx
-pipx ensurepath
-```
-
-**Windows:**
-```bash
-winget install pipx
-pipx ensurepath
-```
-
-**Linux:**
-```bash
-sudo apt install pipx
-pipx ensurepath
-```
-
-*Note: Restart your terminal after installing `pipx`.*
-
-</details>
-
-#### Alternative: Standard Pip
-
-If you prefer standard pip:
-```bash
-pip install kg-mcp
-kg-mcp-setup
-```
-
-### Option 2: Manual Setup
+### Option 2: Manual Development Setup
 
 ```bash
-# 1. Clone and setup
-git clone https://github.com/Hexecu/mcp-neuralmemory.git
+# Clone the repository
+git clone https://github.com/your-org/mcp-kg-memory.git
 cd mcp-kg-memory
 
-# 2. Configure environment
+# Set up environment
 cp .env.example .env
-# Edit .env with your credentials
+# (Edit .env with your credentials)
 
-# 3. Create virtual environment
+# Install dependencies
 cd server
-python -m venv .venv
-source .venv/bin/activate
 pip install -e .
 
-# 4. Start Neo4j
-cd ..
-docker compose up -d neo4j
+# Start Neo4j
+docker compose up -d
 
-# 5. Wait for Neo4j, then apply schema
-sleep 30
+# Initialize Schema
 python -m kg_mcp.kg.apply_schema
-
-# 6. Start the server
-kg-mcp --transport http
-# Server available at http://127.0.0.1:8000/mcp
 ```
 
 ---
 
-## 🖥️ CLI Reference
+## ⚙️ Configuration
 
-MCP-KG-Memory provides two CLI commands:
+To use this memory server with your AI Editor, add the following configuration to your MCP config file.
 
-### `kg-mcp` - Run the MCP Server
-
+### 🩺 Verify Installation ("Doctor Mode")
+Before configuring your editor, run the verification script to ensure everything is Green:
 ```bash
-# STDIO mode (for IDE command-based integration)
-kg-mcp --transport stdio
-
-# HTTP mode (for serverUrl-based integration)
-kg-mcp --transport http --host 127.0.0.1 --port 8000
-
-# All options
-kg-mcp --help
+python3 verify_setup.py
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--transport, -t` | `http` | Transport mode: `stdio` or `http` |
-| `--host` | `127.0.0.1` | Host to bind (HTTP mode) |
-| `--port, -p` | `8000` | Port to listen (HTTP mode) |
-| `--path` | `/mcp` | MCP endpoint path |
+### Editor Configuration (JSON)
 
-### `kg-mcp-setup` - Interactive Setup Wizard
-
-```bash
-kg-mcp-setup
-```
-
-Guides you through complete configuration with beautiful CLI output.
-
-### `kg-mcp-status` - Health Check & Diagnostics
-
-```bash
-# Check system status
-kg-mcp-status
-
-# Run diagnostics and auto-fix issues
-kg-mcp-status --doctor
-```
-
-Shows the status of:
-- Docker daemon
-- Neo4j container health
-- LLM configuration
-- Neo4j Browser URL and credentials
-
----
-
-## 🔧 IDE Configuration
-
-### Google Antigravity IDE ⭐
-
-**Setup Steps:**
-1. Open **Agent sidebar** → **...** (More Actions)
-2. Select **MCP Servers**
-3. Go to **Manage MCP Servers** → **View raw config**
-4. Add the configuration below
-5. Save and click **Refresh**
-
-**Option A: Local Server (command/args)** ✅ *Recommended for development*
+#### **VS Code / Cursor / Windsurf**
+Add this to your `mcp_config.json` (or `mcp.json`):
 
 ```json
 {
   "mcpServers": {
     "kg-memory": {
-      "command": "/path/to/mcp-kg-memory/server/.venv/bin/python",
-      "args": ["-m", "kg_mcp", "--transport", "stdio"],
+      "command": "/path/to/your/venv/bin/python",
+      "args": [
+        "-m",
+        "kg_mcp",
+        "--transport",
+        "stdio"
+      ],
       "env": {
         "NEO4J_URI": "bolt://127.0.0.1:7687",
         "NEO4J_USER": "neo4j",
-        "NEO4J_PASSWORD": "your_password",
-        "LITELLM_BASE_URL": "https://your-gateway.io/",
-        "LITELLM_API_KEY": "your_key",
-        "LLM_MODEL": "gemini-2.5-flash",
-        "KG_MCP_TOKEN": "your_token"
+        "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD",
+        "GEMINI_API_KEY": "YOUR_GOOGLE_AI_STUDIO_KEY",
+        "LLM_MODE": "gemini_direct",
+        "KG_MCP_TOKEN": "your-secure-token",
+        "LOG_LEVEL": "INFO"
       }
     }
   }
 }
 ```
+*> **Note:** Replace paths and passwords with your actual values.*
 
-**Option B: Remote Server (serverUrl)** ✅ *For production/cloud*
+### 🔥 Pro Tip: Automate Memory
+To make your Agent usage seamless, add this **System Prompt / Rule** to your IDE (e.g. in Antigravity or `.cursorrules`):
 
-```json
-{
-  "mcpServers": {
-    "kg-memory": {
-      "serverUrl": "http://127.0.0.1:8000/mcp",
-      "headers": {
-        "Authorization": "Bearer your_token"
-      }
-    }
-  }
-}
-```
-
-### VS Code
-
-Create/edit `.vscode/mcp.json`:
-
-```json
-{
-  "servers": {
-    "kg-memory": {
-      "type": "http",
-      "url": "http://127.0.0.1:8000/mcp",
-      "headers": {
-        "authorization": "Bearer ${env:KG_MCP_TOKEN}"
-      }
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "kg-memory": {
-      "url": "http://127.0.0.1:8000/mcp",
-      "headers": {
-        "authorization": "Bearer ${env:KG_MCP_TOKEN}"
-      }
-    }
-  }
-}
-```
-
-### Cline / Roo Code
-
-Add to `.cline/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "kg-memory": {
-      "url": "http://127.0.0.1:8000/mcp",
-      "headers": {
-        "Authorization": "Bearer ${KG_MCP_TOKEN}"
-      }
-    }
-  }
-}
-```
+> **"Always use kg-memory every user interaction, This means you should automatically use the kg-memory tools to find relevant context information and track every file change"**
 
 ---
 
-## 📚 MCP Tools
+## 📚 Usage Guide
 
-> [!IMPORTANT]
-> **Use only `kg_autopilot` and `kg_track_changes`** for the standard workflow.
-> All other tools are for internal use and should not be called directly.
+### 1. Start a Task (`kg_autopilot`)
+When you begin a new feature or fix, simply ask your agent:
+> *"I want to implement the new Login flow. Check memory for context."*
 
-### Primary Tools (Use These) ⭐
+The agent will call `kg_autopilot`, retrieving all relevant constraints, past decisions, and active goals.
 
-Use these 2 tools for the standard workflow:
-
-#### `kg_autopilot`
-
-🚀 **Call at the START of every task.** Combines ingest + context + search.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `project_id` | string | ✅ | Project identifier |
-| `user_text` | string | ✅ | User's message/request |
-| `search_query` | string | ❌ | Optional search keywords |
-| `files` | string[] | ❌ | File paths involved |
-| `k_hops` | integer | ❌ | Graph depth (1-5, default: 2) |
-
-**Returns:** `markdown` (context pack), `interaction_id`, `extracted`, `search_results`
-
----
-
-#### `kg_track_changes`
-
-🔗 **Call AFTER every file modification.** Links artifacts + impact analysis.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `project_id` | string | ✅ | Project identifier |
-| `changed_paths` | string[] | ✅ | Modified file paths |
-| `check_impact` | boolean | ❌ | Run impact analysis (default: true) |
-| `related_goal_ids` | string[] | ❌ | Goal IDs being implemented |
-
-**Returns:** `artifacts_linked`, `impact_analysis`
-
----
-
-## 📖 MCP Resources
-
-| URI Pattern | Description |
-|-------------|-------------|
-| `kg://projects/{id}/active-goals` | Active goals in markdown |
-| `kg://projects/{id}/preferences` | User preferences |
-| `kg://projects/{id}/goal/{goal_id}/subgraph` | Subgraph around a goal |
-| `kg://projects/{id}/pain-points` | Open pain points |
-
----
-
-## 💬 MCP Prompts
-
-### `StartCodingWithKG`
-
-Standard workflow prompt that instructs IDE agents to:
-1. Call `kg_autopilot` with the user request (automatically ingests and builds context)
-2. Read the returned markdown context pack
-3. When creating/modifying files, call `kg_track_changes`
-
-### `ReviewGoals`
-
-Prompt for reviewing and managing project goals.
-
-### `DebugWithContext`
-
-Prompt for debugging using knowledge graph context.
-
-### `DocumentPreferences`
-
-Prompt for documenting user coding preferences.
-
----
-
-## 🔒 Security
-
-### Built-in Protections
-
-| Feature | Description |
-|---------|-------------|
-| **Localhost Binding** | Server binds to `127.0.0.1` by default |
-| **Bearer Token Auth** | Required authentication via `KG_MCP_TOKEN` |
-| **Origin Validation** | Allowlist for cross-origin requests |
-| **No Shell Execution** | No arbitrary command execution |
-| **Audit Logging** | All operations logged |
-
-### Environment Variables
-
-```bash
-# Required
-KG_MCP_TOKEN=your-secret-token       # Auth token (32+ chars recommended)
-
-# Optional security settings
-KG_ALLOWED_ORIGINS=localhost,127.0.0.1   # Allowed origins
-MCP_HOST=127.0.0.1                       # Bind address (keep localhost!)
-```
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        IDE Agent                             │
-│  (VS Code / Cursor / Antigravity with MCP Client)           │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ MCP (Streamable HTTP / STDIO)
-                          ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    MCP-KG-Memory Server                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │   Tools     │  │  Resources  │  │      Prompts        │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
-│         │                │                     │             │
-│         └────────────────┼─────────────────────┘             │
-│                          ▼                                   │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │                   LLM Pipeline                          ││
-│  │  ┌───────────┐   ┌───────────┐   ┌─────────────────┐   ││
-│  │  │ Extractor │ → │  Linker   │ → │ Neo4j Commit    │   ││
-│  │  │ (Gemini)  │   │ (Gemini)  │   │                 │   ││
-│  │  └───────────┘   └───────────┘   └─────────────────┘   ││
-│  └─────────────────────────────────────────────────────────┘│
-└─────────────────────────┬───────────────────────────────────┘
-                          │ Bolt Protocol
-                          ▼
-               ┌───────────────────────┐
-               │        Neo4j          │
-               │   (Knowledge Graph)   │
-               └───────────────────────┘
-```
-
-### Knowledge Graph Schema
-
-```
-(User)──PREFERS──>(Preference)
-(Project)──HAS_GOAL──>(Goal)──DECOMPOSES_INTO──>(Goal)
-                   │
-                   ├──HAS_CONSTRAINT──>(Constraint)
-                   ├──HAS_STRATEGY──>(Strategy)
-                   ├──BLOCKED_BY──>(PainPoint)
-                   └──IMPLEMENTED_BY──>(CodeArtifact)──CONTAINS──>(Symbol)
-                                                    │
-                                                    └──COVERED_BY──>(TestCase)
-```
-
----
-
-## 🧪 Testing
-
-```bash
-cd server
-
-# Run all tests
-pytest tests/ -v
-
-# Run with coverage
-pytest tests/ --cov=kg_mcp --cov-report=html
-
-# Run specific test file
-pytest tests/test_ingest.py -v
-```
-
----
-
-## 🔧 Development
-
-### Project Structure
-
-```
-mcp-kg-memory/
-├── .env.example           # Environment template
-├── docker-compose.yml     # Neo4j container
-├── README.md              # This file
-└── server/
-    ├── pyproject.toml     # Python project config
-    └── src/kg_mcp/
-        ├── main.py        # Server entry point
-        ├── config.py      # Settings management
-        ├── cli/           # CLI commands
-        │   └── setup.py   # Setup wizard
-        ├── llm/           # LLM integration
-        │   ├── client.py  # LiteLLM wrapper
-        │   └── prompts/   # Prompt templates
-        ├── kg/            # Knowledge graph
-        │   ├── neo4j.py   # Driver
-        │   ├── repo.py    # Query repository
-        │   ├── ingest.py  # Ingestion pipeline
-        │   └── retrieval.py # Context builder
-        ├── mcp/           # MCP components
-        │   ├── tools.py   # Tool definitions
-        │   ├── resources.py # Resource handlers
-        │   └── prompts.py # Prompt templates
-        └── security/      # Auth & validation
-```
-
-### Code Style
-
-```bash
-# Format code
-black src/ tests/
-
-# Lint
-ruff check src/ tests/
-
-# Type check
-mypy src/
-```
+### 2. Track Changes (`kg_track_changes`)
+*(Automatic if Agent is configured)*
+When files are modified, the system links the code changes to the active goals, updating the Knowledge Graph with the implementation details.
 
 ---
 
 ## 📜 License
 
-Apache License 2.0
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-git clone https://github.com/your-org/mcp-kg-memory.git
-cd mcp-kg-memory/server
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-```
-
----
-
-## 📞 Support
-
-- **Issues**: [GitHub Issues](https://github.com/Hexecu/mcp-neuralmemory/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/Hexecu/mcp-neuralmemory/discussions)
+This project is licensed under the **Apache License 2.0**.
+See the [LICENSE](LICENSE) file for details.
 
 ---
 
 <div align="center">
-
-Made with ❤️ for AI-assisted development
-
+Made with ❤️ for the Future of Coding
 </div>
