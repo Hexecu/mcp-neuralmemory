@@ -87,12 +87,45 @@ The wizard will:
 3.  Configure the **LLM Mode** (Direct vs LiteLLM).
 4.  Generate a secure `.env` file.
 
+<details>
+<summary>❓ Don't have <code>pipx</code>? Click here to install it</summary>
+
+**macOS:**
+```bash
+brew install pipx
+pipx ensurepath
+```
+
+**Windows:**
+```bash
+winget install pipx
+pipx ensurepath
+```
+
+**Linux (Debian/Ubuntu):**
+```bash
+sudo apt install pipx
+pipx ensurepath
+```
+
+*Restart your terminal after installing pipx.*
+
+</details>
+
+#### Alternative: Standard Pip
+
+If you prefer not to use pipx:
+```bash
+pip install kg-mcp
+kg-mcp-setup
+```
+
 ### Option 2: Manual Development Setup
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/mcp-kg-memory.git
-cd mcp-kg-memory
+git clone https://github.com/Hexecu/mcp-neuralmemory.git
+cd mcp-neuralmemory
 
 # Set up environment
 cp .env.example .env
@@ -151,6 +184,36 @@ Add this to your `mcp_config.json` (or `mcp.json`):
 }
 ```
 *> **Note:** Replace paths and passwords with your actual values.*
+
+#### **Antigravity IDE** ⭐ (Recommended)
+
+Antigravity is the IDE this project is primarily developed for. Add to `~/.gemini/antigravity/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "kg-memory": {
+      "command": "/path/to/venv/bin/python",
+      "args": ["-m", "kg_mcp", "--transport", "stdio"],
+      "env": {
+        "NEO4J_URI": "bolt://127.0.0.1:7687",
+        "NEO4J_USER": "neo4j",
+        "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD",
+        "GEMINI_API_KEY": "YOUR_GOOGLE_AI_STUDIO_KEY",
+        "LLM_MODEL": "gemini/gemini-1.5-flash",
+        "KG_MCP_TOKEN": "your-secure-token"
+      }
+    }
+  }
+}
+```
+
+**Setup Steps in Antigravity:**
+1. Open **Agent sidebar** → **...** (More Actions)
+2. Select **MCP Servers** → **Manage MCP Servers** → **View raw config**
+3. Paste the JSON above
+4. Save and click **Refresh**
+5. You should see `kg-memory` with 2 tools
 
 ### 🔥 Pro Tip: Automate Memory
 To make your Agent usage seamless, add this **System Prompt / Rule** to your IDE (e.g. in Antigravity or `.cursorrules`):
