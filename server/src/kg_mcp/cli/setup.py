@@ -309,10 +309,20 @@ Let's get started!
                 "Gemini API Key (from https://aistudio.google.com)",
                 password=True
             )
-            self.config["llm_model"] = Prompt.ask(
-                "Model name",
-                default="gemini/gemini-2.5-pro-preview-05-06"
-            )
+            while True:
+                model = Prompt.ask(
+                    "Model name",
+                    default="gemini/gemini-1.5-flash"
+                )
+                if not model.startswith("gemini/"):
+                    console.print("  [yellow]![/] Warning: Gemini models usually start with 'gemini/' (e.g. gemini/gemini-1.5-flash)")
+                    if Confirm.ask("Use this name anyway?", default=False):
+                        self.config["llm_model"] = model
+                        break
+                else:
+                    self.config["llm_model"] = model
+                    break
+
             self.config["litellm_base_url"] = ""
             self.config["litellm_api_key"] = ""
         
@@ -408,6 +418,11 @@ KG_ALLOWED_ORIGINS={self.config['allowed_origins']}
                 env = os.environ.copy()
                 env["NEO4J_AUTH"] = f"neo4j/{self.config['neo4j_password']}"
                 
+                # Ensure docker-compose.yml exists
+                if not (self.project_root / "docker-compose.yml").exists():
+                    console.print("  [yellow]![/] docker-compose.yml not found, trying to download...[/]")
+                    self._download_docker_compose(self.project_root / "docker-compose.yml")
+
                 result = subprocess.run(
                     ["docker", "compose", "up", "-d", "neo4j"],
                     cwd=self.project_root,
@@ -451,9 +466,14 @@ KG_ALLOWED_ORIGINS={self.config['allowed_origins']}
                     "NEO4J_PASSWORD": self.config["neo4j_password"],
                 })
                 
+                # Determine correct CWD
+                cwd = self.project_root / "server"
+                if not cwd.exists():
+                    cwd = self.project_root
+
                 result = subprocess.run(
                     [sys.executable, "-m", "kg_mcp.kg.apply_schema"],
-                    cwd=self.project_root / "server",
+                    cwd=cwd,
                     capture_output=True,
                     text=True,
                     env=env,
