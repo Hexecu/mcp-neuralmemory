@@ -81,34 +81,62 @@ Map files → symbols → references for:
 
 ## 🚀 Quick Start
 
-### Option 1: Interactive Setup Wizard (Recommended)
+### Option 1: One-Line Installation (Recommended)
+
+Requires [pipx](https://github.com/pypa/pipx) (see below if you don't have it).
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-org/mcp-kg-memory.git
-cd mcp-kg-memory/server
-
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# or: .venv\Scripts\activate  # Windows
-
-# Install with setup wizard
-pip install -e .
+pipx install kg-mcp
 kg-mcp-setup
 ```
 
-The wizard will guide you through:
-1. Neo4j configuration (local Docker or remote)
-2. LLM API setup (LiteLLM Gateway or Gemini direct)
-3. Security token generation
-4. Antigravity IDE integration
+The setup wizard will automatically:
+1. Verify Docker installation
+2. Download the Neo4j `docker-compose.yml`
+3. Configure your LLM credentials (Gemini/LiteLLM)
+4. Set up security tokens
+5. Provide IDE configuration JSON
+
+#### Don't have `pipx`?
+
+<details>
+<summary>Click to see installation commands</summary>
+
+**macOS:**
+```bash
+brew install pipx
+pipx ensurepath
+```
+
+**Windows:**
+```bash
+winget install pipx
+pipx ensurepath
+```
+
+**Linux:**
+```bash
+sudo apt install pipx
+pipx ensurepath
+```
+
+*Note: Restart your terminal after installing `pipx`.*
+
+</details>
+
+#### Alternative: Standard Pip
+
+If you prefer standard pip:
+```bash
+pip install kg-mcp
+kg-mcp-setup
+```
 
 ### Option 2: Manual Setup
 
 ```bash
 # 1. Clone and setup
-git clone https://github.com/your-org/mcp-kg-memory.git
+git clone https://github.com/Hexecu/mcp-neuralmemory.git
 cd mcp-kg-memory
 
 # 2. Configure environment
@@ -530,8 +558,8 @@ pip install -e ".[dev]"
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/mcp-kg-memory/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/mcp-kg-memory/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Hexecu/mcp-neuralmemory/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Hexecu/mcp-neuralmemory/discussions)
 
 ---
 
