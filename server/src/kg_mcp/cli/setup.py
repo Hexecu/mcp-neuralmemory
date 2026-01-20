@@ -45,7 +45,7 @@ class SetupWizard:
         self.project_root = self._find_project_root()
 
     def _find_project_root(self) -> Path:
-        """Find the project root directory."""
+        """Find the project root directory or create one for pipx installations."""
         current = Path.cwd()
         
         # Check if we're in the server directory
@@ -63,13 +63,43 @@ class SetupWizard:
             if (parent / "docker-compose.yml").exists():
                 return parent
         
-        return current
+        # Not in a project directory - likely installed via pipx
+        # Use ~/.kg-mcp as the project root
+        kg_mcp_home = Path.home() / ".kg-mcp"
+        kg_mcp_home.mkdir(exist_ok=True)
+        
+        # Download docker-compose.yml if not present
+        dc_path = kg_mcp_home / "docker-compose.yml"
+        if not dc_path.exists():
+            self._download_docker_compose(dc_path)
+        
+        return kg_mcp_home
+
+    def _download_docker_compose(self, target_path: Path):
+        """Download docker-compose.yml from GitHub."""
+        import urllib.request
+        
+        console.print("  [dim]Downloading docker-compose.yml from GitHub...[/]")
+        
+        url = "https://raw.githubusercontent.com/Hexecu/mcp-neuralmemory/main/docker-compose.yml"
+        
+        try:
+            urllib.request.urlretrieve(url, target_path)
+            console.print(f"  [green]✓[/] Downloaded to {target_path}")
+        except Exception as e:
+            console.print(f"  [red]✗[/] Failed to download: {e}")
+            console.print("  [yellow]You can manually download from:[/]")
+            console.print(f"    [cyan]{url}[/]")
+            console.print(f"  [yellow]And save to: {target_path}[/]")
 
     def run(self):
         """Run the complete setup wizard."""
         self._print_welcome()
         
         try:
+            # Step 0: Verify Docker
+            self._check_docker()
+            
             # Step 1: Neo4j Configuration
             self._setup_neo4j()
             
@@ -115,6 +145,85 @@ Welcome! This wizard will help you set up the Memory/Knowledge Graph MCP Server.
 Let's get started!
         """
         console.print(Panel(Markdown(welcome), title="Setup Wizard", border_style="green"))
+        console.print()
+
+    def _check_docker(self):
+        """Verify Docker is installed and running."""
+        console.print(Panel("[bold]Step 0: Docker Verification[/]", style="blue"))
+        
+        # Check if Docker is installed
+        try:
+            result = subprocess.run(
+                ["docker", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            docker_installed = result.returncode == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            docker_installed = False
+        
+        if not docker_installed:
+            console.print("  [red]✗[/] Docker is not installed")
+            console.print()
+            console.print("  [bold]Please install Docker Desktop:[/]")
+            if sys.platform == "darwin":
+                console.print("    [cyan]https://docs.docker.com/desktop/install/mac-install/[/]")
+            elif sys.platform == "win32":
+                console.print("    [cyan]https://docs.docker.com/desktop/install/windows-install/[/]")
+            else:
+                console.print("    [cyan]https://docs.docker.com/desktop/install/linux-install/[/]")
+            console.print()
+            if not Confirm.ask("Continue anyway (use remote Neo4j)?", default=False):
+                sys.exit(1)
+            return
+        
+        console.print("  [green]✓[/] Docker is installed")
+        
+        # Check if Docker daemon is running
+        try:
+            result = subprocess.run(
+                ["docker", "info"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            docker_running = result.returncode == 0
+        except subprocess.TimeoutExpired:
+            docker_running = False
+        
+        if not docker_running:
+            console.print("  [yellow]![/] Docker daemon is not running")
+            
+            if sys.platform == "darwin":
+                if Confirm.ask("Start Docker Desktop now?", default=True):
+                    console.print("  Starting Docker Desktop...")
+                    subprocess.run(["open", "-a", "Docker"], check=False)
+                    console.print("  [dim]Please wait for Docker to start (~30 seconds)...[/]")
+                    
+                    import time
+                    for i in range(30):
+                        time.sleep(1)
+                        try:
+                            result = subprocess.run(
+                                ["docker", "info"],
+                                capture_output=True,
+                                timeout=2,
+                            )
+                            if result.returncode == 0:
+                                console.print("  [green]✓[/] Docker is now running")
+                                break
+                        except Exception:
+                            pass
+                    else:
+                        console.print("  [yellow]![/] Docker is still starting, continuing anyway...")
+            else:
+                console.print("  [yellow]Please start Docker and run this wizard again[/]")
+                if not Confirm.ask("Continue anyway?", default=False):
+                    sys.exit(1)
+        else:
+            console.print("  [green]✓[/] Docker daemon is running")
+        
         console.print()
 
     def _setup_neo4j(self):
@@ -441,17 +550,39 @@ KG_ALLOWED_ORIGINS={self.config['allowed_origins']}
         
         console.print(table)
         
+        # Neo4j Browser info
+        if self.config.get("start_neo4j_docker") or "localhost" in self.config.get("neo4j_uri", ""):
+            console.print()
+            console.print(Panel(
+                "[bold]Neo4j Browser[/]\n\n"
+                f"URL: [cyan]http://localhost:7474[/]\n"
+                f"Username: [green]{self.config['neo4j_user']}[/]\n"
+                f"Password: [green]{self.config['neo4j_password']}[/]\n\n"
+                "[dim]Use this to visualize your knowledge graph![/]",
+                title="📊 Graph Visualization",
+                style="green"
+            ))
+        
         console.print()
         console.print("[bold]Quick Start Commands:[/]")
+        console.print()
+        console.print("  # Check system status")
+        console.print("  [cyan]kg-mcp-status[/]")
+        console.print()
+        console.print("  # Fix common issues")
+        console.print("  [cyan]kg-mcp-status --doctor[/]")
         console.print()
         console.print("  # Start the MCP server (HTTP mode)")
         console.print(f"  [cyan]cd {self.project_root}/server && kg-mcp --transport http[/]")
         console.print()
-        console.print("  # Or use STDIO mode (for IDE integration)")
-        console.print("  [cyan]kg-mcp --transport stdio[/]")
-        console.print()
-        console.print("  # Test with Neo4j")
-        console.print("  [cyan]docker compose logs -f neo4j[/]")
+        
+        # Docker auto-start tip
+        if sys.platform == "darwin":  # macOS
+            console.print()
+            console.print("[bold yellow]💡 Tip: Enable Docker auto-start[/]")
+            console.print("  Docker Desktop → Settings → General → 'Start Docker Desktop when you sign in'")
+            console.print("  This ensures Neo4j is always available after reboot.")
+        
         console.print()
 
 

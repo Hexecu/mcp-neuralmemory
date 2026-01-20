@@ -168,6 +168,22 @@ kg-mcp-setup
 
 Guides you through complete configuration with beautiful CLI output.
 
+### `kg-mcp-status` - Health Check & Diagnostics
+
+```bash
+# Check system status
+kg-mcp-status
+
+# Run diagnostics and auto-fix issues
+kg-mcp-status --doctor
+```
+
+Shows the status of:
+- Docker daemon
+- Neo4j container health
+- LLM configuration
+- Neo4j Browser URL and credentials
+
 ---
 
 ## 🔧 IDE Configuration
