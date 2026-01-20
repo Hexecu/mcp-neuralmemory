@@ -60,6 +60,8 @@ class StrategyExtract(BaseModel):
     title: str = Field(..., description="Short title of the strategy")
     approach: str = Field(..., description="Description of the approach")
     rationale: Optional[str] = Field(None, description="Why this strategy was chosen")
+    outcome: Optional[str] = Field(None, description="Outcome of the strategy: success, failure, pending")
+    outcome_reason: Optional[str] = Field(None, description="Reason for the outcome")
     related_goal: Optional[str] = Field(None, description="Related goal title if any")
 
 
@@ -198,6 +200,8 @@ class StrategyNode(BaseNode):
     title: str
     approach: str
     rationale: Optional[str] = None
+    outcome: Optional[str] = None
+    outcome_reason: Optional[str] = None
     project_id: str
 
 

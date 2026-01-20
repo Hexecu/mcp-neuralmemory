@@ -378,6 +378,8 @@ class KGRepository:
         title: str,
         approach: str,
         rationale: Optional[str] = None,
+        outcome: Optional[str] = None,
+        outcome_reason: Optional[str] = None,
         related_goal_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Upsert a strategy node."""
@@ -388,11 +390,15 @@ class KGRepository:
             s.id = $strategy_id,
             s.approach = $approach,
             s.rationale = $rationale,
+            s.outcome = $outcome,
+            s.outcome_reason = $outcome_reason,
             s.created_at = datetime(),
             s.updated_at = datetime()
         ON MATCH SET
             s.approach = $approach,
             s.rationale = COALESCE($rationale, s.rationale),
+            s.outcome = COALESCE($outcome, s.outcome),
+            s.outcome_reason = COALESCE($outcome_reason, s.outcome_reason),
             s.updated_at = datetime()
         RETURN s {.*} as strategy
         """
@@ -404,6 +410,8 @@ class KGRepository:
                 "title": title,
                 "approach": approach,
                 "rationale": rationale,
+                "outcome": outcome,
+                "outcome_reason": outcome_reason,
             },
         )
         strategy = result[0]["strategy"] if result else {"id": strategy_id}

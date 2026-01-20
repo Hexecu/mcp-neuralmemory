@@ -215,6 +215,8 @@ class IngestPipeline:
                 title=strategy_extract.title,
                 approach=strategy_extract.approach,
                 rationale=strategy_extract.rationale,
+                outcome=strategy_extract.outcome,
+                outcome_reason=strategy_extract.outcome_reason,
                 related_goal_id=related_goal_id,
             )
             created["strategies"].append(strategy["id"])
