@@ -700,11 +700,18 @@ Andiamo.
                 console.print(f"[dim]Container esistenti: {', '.join(conflicting)}[/]")
                 console.print("[dim]Nota: verranno rimossi anche i volumi per evitare conflitti password.[/]")
                 if Confirm.ask("Fermo e rimuovo i container esistenti (e i volumi)?", default=True):
+                    # Use docker compose down -v if compose file exists (most reliable)
+                    compose_path = self.project_root / "docker-compose.yml"
+                    if compose_path.exists():
+                        run_cmd(["docker", "compose", "down", "-v"], cwd=self.project_root, timeout=60)
+                    # Also stop/remove any containers by name
                     for c in conflicting:
                         run_cmd(["docker", "stop", c], timeout=30)
-                        run_cmd(["docker", "rm", "-v", c], timeout=10)  # -v removes volumes too
-                    # Also try to remove named volumes from our compose
-                    run_cmd(["docker", "volume", "rm", "kg-mcp_neo4j_data", "kg-mcp_neo4j_logs"], timeout=10)
+                        run_cmd(["docker", "rm", "-v", c], timeout=10)
+                    # Force remove any lingering volumes by name pattern
+                    for vol in ["kg-mcp_neo4j_data", "kg-mcp_neo4j_logs", 
+                                "mcp-kg-memory_neo4j_data", "mcp-kg-memory_neo4j_logs"]:
+                        run_cmd(["docker", "volume", "rm", "-f", vol], timeout=10)
                     console.print("[green]✓[/] Container e volumi rimossi.")
                     time.sleep(2)
                 else:
@@ -943,7 +950,9 @@ volumes:
                     error_output = r.stderr or r.stdout or ""
                     console.print(f"[dim]{error_output}[/]")
                     # Show connection info for debugging
-                    console.print(f"\n[dim]Debug: NEO4J_URI={env.get('NEO4J_URI')}, NEO4J_USER={env.get('NEO4J_USER')}[/]")
+                    pwd_debug = env.get('NEO4J_PASSWORD', '')[:4] + '***' if env.get('NEO4J_PASSWORD') else 'NOT SET'
+                    console.print(f"\n[dim]Debug: NEO4J_URI={env.get('NEO4J_URI')}, NEO4J_USER={env.get('NEO4J_USER')}, NEO4J_PASSWORD={pwd_debug}[/]")
+                    console.print(f"[dim]Debug: Password in config: {'YES' if 'NEO4J_PASSWORD' in self.config else 'NO'}[/]")
             except Exception as e:
                 console.print("[yellow]![/] Impossibile eseguire apply_schema (modulo mancante o errore runtime).")
                 console.print(str(e))
