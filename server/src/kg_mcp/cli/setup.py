@@ -698,11 +698,14 @@ Andiamo.
             conflicting = self._find_neo4j_containers()
             if conflicting:
                 console.print(f"[dim]Container esistenti: {', '.join(conflicting)}[/]")
-                if Confirm.ask("Fermo e rimuovo i container esistenti?", default=True):
+                console.print("[dim]Nota: verranno rimossi anche i volumi per evitare conflitti password.[/]")
+                if Confirm.ask("Fermo e rimuovo i container esistenti (e i volumi)?", default=True):
                     for c in conflicting:
                         run_cmd(["docker", "stop", c], timeout=30)
-                        run_cmd(["docker", "rm", c], timeout=10)
-                    console.print("[green]✓[/] Container rimossi.")
+                        run_cmd(["docker", "rm", "-v", c], timeout=10)  # -v removes volumes too
+                    # Also try to remove named volumes from our compose
+                    run_cmd(["docker", "volume", "rm", "kg-mcp_neo4j_data", "kg-mcp_neo4j_logs"], timeout=10)
+                    console.print("[green]✓[/] Container e volumi rimossi.")
                     time.sleep(2)
                 else:
                     console.print("[yellow]Skipping Neo4j start - risolvere conflitto manualmente.[/]")
@@ -752,6 +755,17 @@ Andiamo.
             pass
         return []
 
+    def _check_neo4j_volumes(self) -> List[str]:
+        """Check if Neo4j volumes already exist."""
+        try:
+            r = run_cmd(["docker", "volume", "ls", "--format", "{{.Name}}"], timeout=10)
+            if r.returncode == 0 and r.stdout:
+                volumes = r.stdout.strip().split('\n')
+                return [v for v in volumes if 'neo4j' in v.lower() or 'kg-mcp' in v.lower()]
+        except Exception:
+            pass
+        return []
+
     def _write_minimal_compose(self, path: Path) -> None:
         pw = self.config.get("NEO4J_PASSWORD", "neo4j")
         # Note: removed 'version' attribute as it's obsolete in modern docker compose
@@ -778,6 +792,62 @@ volumes:
         safe_write_text(path, content)
         console.print(f"[green]✓[/] Creato docker-compose.yml minimale: {path}")
 
+    def _get_container_status(self, container_name: str) -> str:
+        """Get the status of a Docker container."""
+        try:
+            r = run_cmd(["docker", "inspect", "--format", "{{.State.Status}}", container_name], timeout=10)
+            if r.returncode == 0 and r.stdout:
+                return r.stdout.strip()
+            return "not_found"
+        except Exception:
+            return "unknown"
+
+    def _get_container_health(self, container_name: str) -> str:
+        """Get the health status of a Docker container."""
+        try:
+            r = run_cmd(["docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}", container_name], timeout=10)
+            if r.returncode == 0 and r.stdout:
+                return r.stdout.strip()
+            return "unknown"
+        except Exception:
+            return "unknown"
+
+    def _show_docker_logs(self, container_name: str) -> None:
+        """Show last few lines of Docker container logs."""
+        console.print()
+        console.print(Panel(
+            "[bold]📋 Docker Logs (ultime 20 righe)[/]",
+            border_style="red"
+        ))
+        try:
+            r = run_cmd(["docker", "logs", "--tail", "20", container_name], timeout=10)
+            if r.stdout:
+                console.print(f"[dim]{r.stdout[:1000]}[/]")
+            if r.stderr:
+                console.print(f"[red]{r.stderr[:500]}[/]")
+        except Exception as e:
+            console.print(f"[red]Impossibile ottenere i log: {e}[/]")
+        console.print()
+
+    def _show_docker_troubleshooting(self) -> None:
+        """Show troubleshooting guide for Docker issues."""
+        console.print()
+        console.print(Panel(
+            "[bold red]⚠️ Troubleshooting Docker[/]\n\n"
+            "[bold]1. Verifica che Docker sia in esecuzione:[/]\n"
+            "   [cyan]docker info[/]\n\n"
+            "[bold]2. Prova ad avviare manualmente:[/]\n"
+            f"   [cyan]cd {self.project_root} && docker compose up -d neo4j[/]\n\n"
+            "[bold]3. Controlla i container:[/]\n"
+            "   [cyan]docker ps -a | grep neo4j[/]\n\n"
+            "[bold]4. Vedi i log:[/]\n"
+            "   [cyan]docker logs kg-neo4j[/]\n\n"
+            "[dim]Se il problema persiste, prova a riavviare Docker Desktop.[/]",
+            title="🔧 Come risolvere",
+            border_style="yellow"
+        ))
+        console.print()
+
     # -------------------------
     # Optional: apply schema
     # -------------------------
@@ -789,29 +859,60 @@ volumes:
 
         # Wait for Neo4j to be ready if we just started Docker
         if self.config.get("NEO4J_DOCKER_AUTOSTART") == "1":
-            console.print("[dim]Attendo che Neo4j sia pronto...[/]")
+            console.print("[dim]Attendo che Neo4j sia pronto (può richiedere fino a 90s)...[/]")
             neo4j_ready = False
-            for attempt in range(30):  # Max 60 seconds (30 * 2s)
-                try:
-                    import socket
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.settimeout(2)
-                    result = sock.connect_ex(('localhost', 7687))
-                    sock.close()
-                    if result == 0:
-                        # Port is open, but let's also check if Neo4j responds
-                        time.sleep(3)  # Give Neo4j a moment to fully initialize
+            container_status = "unknown"
+            
+            for attempt in range(45):  # Max 90 seconds (45 * 2s)
+                # Check container status AND health
+                container_status = self._get_container_status("kg-neo4j")
+                health_status = self._get_container_health("kg-neo4j")
+                
+                if container_status == "not_found":
+                    console.print("[red]✗[/] Container kg-neo4j non trovato!")
+                    self._show_docker_troubleshooting()
+                    break
+                elif container_status == "exited":
+                    console.print("[red]✗[/] Container kg-neo4j è crashato!")
+                    self._show_docker_logs("kg-neo4j")
+                    break
+                elif container_status == "running":
+                    # Check if healthy (Docker health check)
+                    if health_status == "healthy":
                         neo4j_ready = True
-                        console.print("[green]✓[/] Neo4j è pronto.")
+                        console.print("[green]✓[/] Neo4j è healthy e pronto.")
                         break
-                except Exception:
-                    pass
+                    elif health_status == "unhealthy":
+                        console.print("[red]✗[/] Neo4j è unhealthy!")
+                        self._show_docker_logs("kg-neo4j")
+                        break
+                    # If no health check or starting, try port
+                    elif health_status in ("none", "starting"):
+                        try:
+                            import socket
+                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            sock.settimeout(2)
+                            result = sock.connect_ex(('localhost', 7687))
+                            sock.close()
+                            if result == 0:
+                                time.sleep(5)  # Extra time for Neo4j to fully initialize
+                                neo4j_ready = True
+                                console.print("[green]✓[/] Neo4j è pronto.")
+                                break
+                        except Exception:
+                            pass
+                
                 time.sleep(2)
                 if attempt % 5 == 0 and attempt > 0:
-                    console.print(f"[dim]  ...ancora in attesa ({attempt * 2}s)[/]")
+                    status_str = f"container: {container_status}"
+                    if health_status not in ("none", "unknown"):
+                        status_str += f", health: {health_status}"
+                    console.print(f"[dim]  ...ancora in attesa ({attempt * 2}s) - {status_str}[/]")
             
-            if not neo4j_ready:
-                console.print("[yellow]![/] Neo4j non sembra pronto dopo 60s. Provo comunque...")
+            if not neo4j_ready and container_status == "running":
+                console.print("[yellow]![/] Neo4j non risponde dopo 90s.")
+                self._show_docker_logs("kg-neo4j")
+                console.print("[yellow]Provo comunque ad applicare lo schema...[/]")
 
         # Try running module if present
         server_dir = self.project_root / "server"
