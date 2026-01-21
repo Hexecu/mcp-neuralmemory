@@ -956,8 +956,33 @@ volumes:
 
         console.print(table)
 
-        if self.config.get("NEO4J_DOCKER_AUTOSTART") == "1":
-            console.print("\n[dim]Neo4j Browser: http://localhost:7474 (user neo4j)[/]")
+        # Neo4j Quick Start Tutorial
+        if self.config.get("NEO4J_CONFIGURED") == "1":
+            neo4j_pass = self.config.get("NEO4J_PASSWORD", "")
+            console.print()
+            console.print(Panel(
+                "[bold cyan]📊 Neo4j Browser - Visualizza il Knowledge Graph[/]\n\n"
+                f"[bold]URL:[/] [link=http://localhost:7474]http://localhost:7474[/link]\n"
+                f"[bold]User:[/] neo4j\n"
+                f"[bold]Password:[/] {neo4j_pass}\n\n"
+                "[bold]Query per vedere il grafo:[/]\n"
+                "[cyan]MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100[/]\n\n"
+                "[dim]Copia la query sopra nel Neo4j Browser per visualizzare tutti i nodi e relazioni![/]",
+                title="🔗 Quick Start",
+                border_style="cyan"
+            ))
+
+        # Antigravity restart reminder
+        console.print()
+        console.print(Panel(
+            "[bold yellow]⚠️ Se Antigravity era già aperto:[/]\n\n"
+            "1. Chiudi completamente Antigravity\n"
+            "2. Riaprilo per caricare la nuova configurazione MCP\n\n"
+            "[dim]Oppure: Agent sidebar → MCP Servers → Manage → Refresh[/]",
+            title="🔄 Attiva KG-Memory",
+            border_style="yellow"
+        ))
+
         console.print(f"\n[bold]File .env:[/] {self.env_path}\n")
 
 

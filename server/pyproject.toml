@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kg-mcp"
-version = "0.1.5"
+version = "0.1.6"
 description = "Memory/Knowledge Graph MCP Server for IDE Assistants - Persistent context and knowledge for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
