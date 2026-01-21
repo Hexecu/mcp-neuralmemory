@@ -1080,7 +1080,7 @@ volumes:
                 f"[bold]User:[/] neo4j\n"
                 f"[bold]Password:[/] {neo4j_pass}\n\n"
                 "[bold]Query per vedere il grafo:[/]\n"
-                "[cyan]MATCH (n)-[r]->(m) RETURN n, r, m LIMIT 100[/]\n\n"
+                "[cyan]MATCH (n)-\[r]->(m) RETURN n, r, m LIMIT 100[/]\n\n"
                 "[dim]Copia la query sopra nel Neo4j Browser per visualizzare tutti i nodi e relazioni![/]",
                 title="🔗 Quick Start",
                 border_style="cyan"
