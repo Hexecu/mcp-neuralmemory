@@ -292,7 +292,7 @@ Andiamo.
             "Solo LiteLLM Gateway/Proxy (Gemini routed)",
             "Configura ENTRAMBI (e scegli primario)",
         ]
-        mode = choose_numeric("Che modalità vuoi configurare?", mode_opts, default_index=3)
+        mode = choose_numeric("Che modalità vuoi configurare?", mode_opts, default_index=1)
 
         if mode == 1:
             self._setup_gemini_direct()
@@ -326,7 +326,7 @@ Andiamo.
                 self.config["LLM_MODEL"] = self.config["LITELLM_MODEL"]
 
         # Optional role-based models (useful for KG workloads)
-        if Confirm.ask("Vuoi configurare modelli diversi per RUOLO (default/fast/reason)?", default=True):
+        if Confirm.ask("Vuoi configurare modelli diversi per RUOLO (default/fast/reason)?", default=False):
             self._setup_role_models()
 
         console.print()
@@ -691,6 +691,23 @@ Andiamo.
             console.print("[red]✗ Docker daemon non in esecuzione. Avvia Docker Desktop e rilancia.[/]")
             return
 
+        # Check for port conflicts and offer to cleanup
+        if self._check_port_conflict(7687) or self._check_port_conflict(7474):
+            console.print("[yellow]![/] Le porte Neo4j (7474/7687) sono già in uso.")
+            # Try to find and stop conflicting containers
+            conflicting = self._find_neo4j_containers()
+            if conflicting:
+                console.print(f"[dim]Container esistenti: {', '.join(conflicting)}[/]")
+                if Confirm.ask("Fermo e rimuovo i container esistenti?", default=True):
+                    for c in conflicting:
+                        run_cmd(["docker", "stop", c], timeout=30)
+                        run_cmd(["docker", "rm", c], timeout=10)
+                    console.print("[green]✓[/] Container rimossi.")
+                    time.sleep(2)
+                else:
+                    console.print("[yellow]Skipping Neo4j start - risolvere conflitto manualmente.[/]")
+                    return
+
         compose_path = self.project_root / "docker-compose.yml"
         if not compose_path.exists():
             self._write_minimal_compose(compose_path)
@@ -715,13 +732,34 @@ Andiamo.
 
         console.print()
 
+    def _check_port_conflict(self, port: int) -> bool:
+        """Check if a port is already in use."""
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(1)
+        result = sock.connect_ex(('localhost', port))
+        sock.close()
+        return result == 0
+
+    def _find_neo4j_containers(self) -> List[str]:
+        """Find any running Neo4j-related containers."""
+        try:
+            r = run_cmd(["docker", "ps", "--format", "{{.Names}}"], timeout=10)
+            if r.returncode == 0 and r.stdout:
+                containers = r.stdout.strip().split('\n')
+                return [c for c in containers if 'neo4j' in c.lower() or 'kg-' in c.lower()]
+        except Exception:
+            pass
+        return []
+
     def _write_minimal_compose(self, path: Path) -> None:
         pw = self.config.get("NEO4J_PASSWORD", "neo4j")
-        content = f"""version: "3.9"
-services:
+        # Note: removed 'version' attribute as it's obsolete in modern docker compose
+        content = f"""services:
   neo4j:
     image: neo4j:5
     container_name: kg-neo4j
+    restart: always
     environment:
       - NEO4J_AUTH=neo4j/{pw}
       - NEO4J_server_memory_pagecache_size=512M
@@ -748,6 +786,32 @@ volumes:
             return
 
         console.print(Panel("[bold]Step 6: Apply Neo4j schema (opzionale)[/]", border_style="blue"))
+
+        # Wait for Neo4j to be ready if we just started Docker
+        if self.config.get("NEO4J_DOCKER_AUTOSTART") == "1":
+            console.print("[dim]Attendo che Neo4j sia pronto...[/]")
+            neo4j_ready = False
+            for attempt in range(30):  # Max 60 seconds (30 * 2s)
+                try:
+                    import socket
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(2)
+                    result = sock.connect_ex(('localhost', 7687))
+                    sock.close()
+                    if result == 0:
+                        # Port is open, but let's also check if Neo4j responds
+                        time.sleep(3)  # Give Neo4j a moment to fully initialize
+                        neo4j_ready = True
+                        console.print("[green]✓[/] Neo4j è pronto.")
+                        break
+                except Exception:
+                    pass
+                time.sleep(2)
+                if attempt % 5 == 0 and attempt > 0:
+                    console.print(f"[dim]  ...ancora in attesa ({attempt * 2}s)[/]")
+            
+            if not neo4j_ready:
+                console.print("[yellow]![/] Neo4j non sembra pronto dopo 60s. Provo comunque...")
 
         # Try running module if present
         server_dir = self.project_root / "server"
@@ -897,9 +961,14 @@ volumes:
         console.print(f"\n[bold]File .env:[/] {self.env_path}\n")
 
 
-if __name__ == "__main__":
+def main():
+    """Entry point for kg-mcp-setup command."""
     try:
         SetupWizard().run()
     except KeyboardInterrupt:
         console.print("\n[yellow]Interrotto dall'utente.[/]")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
