@@ -691,6 +691,27 @@ Andiamo.
             console.print("[red]✗ Docker daemon non in esecuzione. Avvia Docker Desktop e rilancia.[/]")
             return
 
+        # ALWAYS check for existing volumes first (regardless of port status)
+        # This prevents password mismatch when user re-runs setup
+        existing_volumes = self._check_neo4j_volumes()
+        if existing_volumes:
+            console.print("[yellow]![/] Trovati volumi Neo4j esistenti da setup precedente.")
+            console.print(f"[dim]Volumi: {', '.join(existing_volumes)}[/]")
+            console.print("[dim]Una nuova password è stata generata - i volumi vecchi vanno rimossi.[/]")
+            if Confirm.ask("Rimuovo i volumi esistenti? (i dati verranno persi)", default=True):
+                # First stop any running containers
+                for c in self._find_neo4j_containers():
+                    run_cmd(["docker", "stop", c], timeout=30)
+                    run_cmd(["docker", "rm", "-v", c], timeout=10)
+                # Then remove volumes
+                for vol in existing_volumes:
+                    run_cmd(["docker", "volume", "rm", "-f", vol], timeout=10)
+                console.print("[green]✓[/] Volumi e container rimossi.")
+                time.sleep(1)
+            else:
+                console.print("[yellow]![/] Mantengo i volumi esistenti.")
+                console.print("[dim]Nota: se la password nel .env è diversa da quella nel volume, Neo4j non partirà.[/]")
+
         # Check for port conflicts and offer to cleanup
         if self._check_port_conflict(7687) or self._check_port_conflict(7474):
             console.print("[yellow]![/] Le porte Neo4j (7474/7687) sono già in uso.")
