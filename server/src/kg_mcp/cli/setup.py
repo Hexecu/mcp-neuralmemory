@@ -938,11 +938,15 @@ volumes:
                 if r.returncode == 0:
                     console.print("[green]✓[/] Schema applicato.")
                 else:
-                    console.print("[yellow]![/] apply_schema ha restituito errori (potrebbe non essere presente nel progetto):")
-                    console.print((r.stderr or r.stdout)[:500])
+                    console.print("[yellow]![/] apply_schema ha restituito errori:")
+                    # Show complete stderr/stdout for debugging
+                    error_output = r.stderr or r.stdout or ""
+                    console.print(f"[dim]{error_output}[/]")
+                    # Show connection info for debugging
+                    console.print(f"\n[dim]Debug: NEO4J_URI={env.get('NEO4J_URI')}, NEO4J_USER={env.get('NEO4J_USER')}[/]")
             except Exception as e:
                 console.print("[yellow]![/] Impossibile eseguire apply_schema (modulo mancante o errore runtime).")
-                console.print(str(e)[:300])
+                console.print(str(e))
 
         console.print()
 
