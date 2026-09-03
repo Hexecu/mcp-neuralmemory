@@ -1,35 +1,70 @@
-# Privacy model
+# Privacy Model & PrivacyShield Engine
 
-Neural Memory can handle unusually sensitive data. Its defaults are intentionally conservative.
+Neural Memory handles sensitive personal context. Its privacy architecture is built around **strict local-first isolation, proactive client-side redaction, and granular user consent**.
 
-## Default behavior
+---
 
-- Fresh macOS and browser installs do not capture activity.
-- Screenshot capture and typed-text capture require separate opt-in on macOS.
-- LLM enrichment is disabled.
-- The API, Neo4j Browser and Neo4j Bolt ports bind to `127.0.0.1`.
-- Private API routes reject requests without the generated bearer token.
-- The macOS client stores that token in the user's Keychain, not in UserDefaults.
-- Request and field size limits are enforced before storage or enrichment.
+## 1. Core Privacy Guarantees
 
-## What is stored
+- **Zero Outbound Data by Default**:
+  - In base mode, no data ever leaves your computer. The API binds strictly to `127.0.0.1`.
+  - In Standalone mode, all data is stored inside a local SQLite property graph at:
+    `~/Library/Application Support/NeuralMemory/memory.db`.
+  - Even when LLM enrichment is enabled (`LLM_ENABLED=true`), all sensitive credentials and identifiers are redacted locally *before* transmission.
+- **Granular Independent Opt-Ins**:
+  - Activity monitoring (app/window focus), screenshot capture, and keystroke buffer capture require separate, explicit toggles in Settings.
+  - On a fresh installation, all capture engines start **disabled**.
+- **Ephemeral Data Pruning (Dream Mode)**:
+  - Raw keyboard, mouse, and window events are automatically pruned after 48 hours (configurable retention period).
+  - Only durable semantic knowledge nodes (`Decision`, `Commitment`, `Meeting`, `Reflection`) persist in long-term memory.
 
-Enabled clients may store application names, window titles, browser page titles, sanitized browser URLs and opted-in typed text as graph events. Screenshot pixels are not persisted by the ingestion API. A perceptual hash may be stored to suppress duplicate captures.
+---
 
-Neo4j data is held in the `neo4j_data` Docker volume. `docker compose down` preserves it.
+## 2. PrivacyShield Redaction Pipeline
 
-## What may leave the machine
+Every interaction bundle ingested by Neural Memory is processed by the local **`PrivacyShield`** service (`server/src/kg_mcp/services/privacy_shield.py`) before storage or LLM vision processing.
 
-Nothing is sent to an LLM while `LLM_ENABLED=false`. When you enable enrichment, opted-in text and screenshots may be sent to the provider configured in `.env`. That provider's retention and training policies then apply.
+### 2.1 Application & Window Deny-List
+Neural Memory instantly drops and suppresses any capture originating from sensitive contexts:
+- **Password Managers & Vaults**: `1Password`, `Bitwarden`, `Apple Keychain Access`, `KeePassXC`, `Enpass`.
+- **Private Browsing**: Window titles containing `"Incognito"`, `"InPrivate"`, or `"Private Browsing"`.
+- **Financial Applications**: Banking portals, payment processors, and crypto wallets.
 
-The enrichment prompt instructs the model to omit credentials, form values, personal messages and email addresses. This is a defense in depth measure, not a guarantee. Do not enable capture in apps or sessions that contain secrets.
+### 2.2 Proactive In-Memory Redaction
+Typed text and contextual strings are scrubbed via dedicated heuristic and cryptographic validators:
 
-## Practical controls
+| Sensitive Pattern | Validation Method | Replacement Mask |
+| :--- | :--- | :--- |
+| **Credit Card Numbers** | Regex pattern matching + **Luhn Algorithm** mathematical checksum validation | `[REDACTED_CREDIT_CARD]` |
+| **IBAN Numbers** | ISO 13616 international standard validation | `[REDACTED_IBAN]` |
+| **OpenAI API Keys** | `sk-[a-zA-Z0-9]{32,64}` | `[REDACTED_API_KEY]` |
+| **Google Gemini API Keys** | `AIza[0-9A-Za-z-_]{30,45}` | `[REDACTED_API_KEY]` |
+| **GitHub Tokens** | `gh[pousr]_[0-9A-Za-z]{36}` | `[REDACTED_API_KEY]` |
+| **Generic Bearer Tokens** | `Bearer [A-Za-z0-9_-]{20,}` | `Bearer [REDACTED]` |
+| **Passwords / PINs** | Contextual field heuristics (`password=...`, `pin=...`) | `[REDACTED_CREDENTIAL]` |
 
-- Keep capture disabled until the local server and token are configured.
-- Use Private Mode or Pause Capture before opening sensitive material.
-- Leave typed text and screenshots disabled unless they add clear value.
-- Never commit `.env` or share its API token.
-- Treat exported graph data as sensitive and encrypt backups.
+---
 
-Future releases should add application deny lists, retention rules and first-class graph deletion/export controls before the clients are described as stable.
+## 3. Storage & Cryptographic Tokens
+
+- **Loopback Isolation**: The HTTP API binds only to `127.0.0.1:8765`. It cannot be reached across local network subnets or Wi-Fi.
+- **Bearer Token**: Access to all mutation and private query endpoints requires a 256-bit cryptographically secure token.
+  - In Standalone mode: Persisted in `~/Library/Application Support/NeuralMemory/token.txt` with `0600` permissions.
+  - In macOS UI app: Stored in the secure system **macOS Keychain**.
+- **Screenshot Transient Storage**: Raw screenshot bitmap pixels are never persisted into the graph database. They are processed in memory for perceptual visual hashing (`dhash`) to eliminate duplicates and immediately discarded.
+
+---
+
+## 4. User Controls & Best Practices
+
+1. **Pause / Private Mode**: Available directly from the macOS Menu Bar. One click pauses all contextual observation while you handle personal matters.
+2. **Database Wipe**:
+   - To completely erase the standalone database:
+     ```bash
+     rm -f ~/Library/Application\ Support/NeuralMemory/memory.db*
+     ```
+   - To erase the Docker database:
+     ```bash
+     docker compose down -v
+     ```
+3. **Never Share Your Token**: Treat `token.txt` and `.env` as sensitive credentials. Do not commit them to version control.

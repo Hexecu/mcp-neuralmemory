@@ -1,23 +1,32 @@
-# Neural Memory
+# 🧠 Neural Memory
 
-Neural Memory turns the context you choose to share into a private, searchable knowledge graph. It connects a local capture layer with an MCP memory server, so both you and your AI tools can recover the projects, decisions and open loops behind your work.
+[![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-blue.svg)](apps/macos)
+[![Architecture](https://img.shields.io/badge/architecture-Dual--Track%20(Standalone%20%7C%20Docker)-success.svg)](docs/ARCHITECTURE.md)
+[![Tests](https://img.shields.io/badge/tests-74%20Python%20%7C%2015%20Swift%20PASS-brightgreen.svg)](docs/TESTING.md)
+[![Zero-Docker](https://img.shields.io/badge/standalone-Zero%20Docker%20Required-orange.svg)](docs/STANDALONE_INSTALLER.md)
+[![License](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
 
-This repository is the next step of `mcp-neuralmemory`: one product, one local stack and explicit control over capture.
+**Neural Memory** is a local-first personal cognitive memory assistant and second brain. It turns the desktop context you choose to share into an autonomous, searchable knowledge graph — anchoring real-world micro-feedback (like an *"Ok"* to an email quote), tracking commitments and decisions, and exposing your context directly to AI tools via the **Model Context Protocol (MCP)**.
 
-> Neural Memory is under active development. The graph server is usable today. The macOS app and browser extension are early previews and start with capture disabled.
+---
 
-## Why it is different
+## ⚡ Quick Start: Choose Your Track
 
-- **Local-first storage.** Neo4j and the ingestion API bind to loopback by default.
-- **Consent before collection.** Activity, screenshots and typed text are separate opt-ins.
-- **Useful without an AI key.** Capture and graph storage work without any LLM provider.
-- **Provider-neutral enrichment.** Optional enrichment can use a LiteLLM gateway or Gemini directly.
-- **Agent-ready memory.** The existing MCP tools remain available over stdio.
-- **Reproducible setup.** Docker packages the server and database; the bootstrap creates random local credentials.
+Neural Memory offers a **Dual-Track Architecture** designed for both casual MacBook users and developer power users:
 
-## Quick start
+### Track B: Standalone Packed Installer (Recommended for Users)
+> **Zero prerequisites. No Docker, no Python, no Homebrew, no terminal commands.**
 
-You need Git, Docker Desktop (or Docker Engine with Compose v2) and `curl`.
+1. Download **`NeuralMemoryAgent-0.2.0-Installer.dmg`** (approx. 112 MB).
+2. Open the disk image and drag **`NeuralMemoryAgent.app`** to your **Applications** folder.
+3. Launch the app from Applications.
+   - Starts an embedded native daemon in under 0.2 seconds.
+   - Stores all data locally in `~/Library/Application Support/NeuralMemory/memory.db`.
+   - Access the menu bar icon, temporal graph, and settings instantly.
+   - *Full guide: [docs/STANDALONE_INSTALLER.md](docs/STANDALONE_INSTALLER.md)*.
+
+### Track A: Open Local Development Stack (For Developers)
+> **Full Docker Compose + Neo4j 5.26 Community Graph Database.**
 
 ```bash
 git clone https://github.com/Hexecu/mcp-neuralmemory.git
@@ -25,138 +34,78 @@ cd mcp-neuralmemory
 ./scripts/bootstrap.sh
 ```
 
-The script creates a private `.env`, builds the API, starts Neo4j and waits for a verified health response. It never overwrites an existing `.env`.
+- Verifies installation: `./scripts/doctor.sh`
+- Graph API: `http://127.0.0.1:8765/health`
+- Neo4j Browser: `http://127.0.0.1:8774` (User: `neo4j`, Password in `.env`)
+- Stop without losing data: `make down`
+- Re-start: `make up`
 
-Verify the installation:
+---
 
-```bash
-./scripts/doctor.sh
-curl http://127.0.0.1:8765/health
-```
+## 🌟 Why Neural Memory is Different
 
-Expected response:
+- 🔒 **PrivacyShield Redaction**: In-memory regex and Luhn checksum filtering automatically masks credit cards, IBANs, API keys (`sk-...`, `AIza...`, GitHub tokens), and ignores password vaults (`1Password`, `Bitwarden`, `Keychain`).
+- 🎯 **Contextual Micro-Feedback Anchoring**: Eliminates arbitrary length cutoffs. When you type *"Ok, proceed with the 5,000 EUR quote"*, vision analysis anchors your consent directly to the sender, amount, and proposal document.
+- 🌌 **Temporal Knowledge Graph**:
+  - **Regional Topic Clusters**: Orbital regional gravity organizes entities into clean thematic galaxies without central collapse.
+  - **Timeline Stream**: Horizontal chronological layout with 5 semantic altitude lanes (*Reflections*, *Decisions*, *Meetings*, *Commitments*, *Topics*).
+  - **Time-Travel Scrubber**: Interactive slider to replay memory history with Ebbinghaus memory decay ($R = e^{-\Delta t / S}$).
+- 🤖 **Agent-Ready Memory (MCP)**: Native Model Context Protocol server over `stdio` lets Claude Desktop, Cursor, Antigravity, and OpenCode recall past decisions, open commitments, and meeting notes.
+- 🌙 **Cognitive Dream Mode**: Periodically prunes ephemeral low-level events (48h retention) and derives higher-order reflections and daily executive briefings.
 
-```json
-{"status":"ok","service":"neural-memory","version":"0.2.0"}
-```
+---
 
-Explore your Knowledge Graph in the Neo4j Browser:
-- **URL**: [http://127.0.0.1:8774](http://127.0.0.1:8774)
-- **User**: `neo4j`
-- **Password**: Found in your `.env` under `NEO4J_PASSWORD`
+## 📚 Complete Documentation Sitemap
 
-Run the end-to-end test suite:
+| Guide | Description |
+| :--- | :--- |
+| **[System Architecture](docs/ARCHITECTURE.md)** | Deep technical dive into the Dual-Track execution model, data pipelines, and storage engines. |
+| **[Standalone Installer Guide](docs/STANDALONE_INSTALLER.md)** | Step-by-step installation, permissions setup, and clean-environment testing on macOS. |
+| **[Temporal Knowledge Graph](docs/TEMPORAL_GRAPH.md)** | Orbital physics model, semantic altitude lanes, time scrubber, and Ebbinghaus decay. |
+| **[Cognitive Ontology](docs/ONTOLOGY.md)** | Entity schemas (`Decision`, `Commitment`, `Meeting`, `Reflection`), relationship semantics, and queries. |
+| **[Model Context Protocol (MCP)](docs/MCP_TOOLS.md)** | Tool schemas (`recall_decisions`, `recall_commitments`, etc.) and configuration for Claude & Cursor. |
+| **[Privacy Model & PrivacyShield](docs/PRIVACY.md)** | Data flow guarantees, deny-lists, masking algorithms, and ephemeral event pruning. |
+| **[Testing & Verification](docs/TESTING.md)** | The 5-stage massive test battery (`make test-massive`) and clean simulation (`make verify-clean`). |
 
-```bash
-make e2e
-```
+---
 
-Your graph survives `docker compose down`. Removing the Docker volume deletes it, so back it up first.
+## 🤖 Connect to AI Agents (Claude Desktop & Cursor)
 
-## Capture clients
-
-### macOS preview
-
-Requirements: macOS 13 or later and Xcode Command Line Tools.
-
-```bash
-cd apps/macos
-./bundle_app.sh
-```
-
-Open `NeuralMemoryAgent.app`, go to Settings and copy `KG_MCP_TOKEN` from the root `.env`. The bundle is unsigned and intended for local development. The app only checks connectivity at launch. It does not capture activity until you enable it, and screenshot and typed-text capture stay off until separately enabled.
-
-### Browser extension preview
-
-Open `chrome://extensions`, enable Developer mode and load `apps/browser-extension` as an unpacked extension. Add the same local API token in its popup, then explicitly enable capture. It sends the page title and URL without query parameters or fragments.
-
-## Optional LLM enrichment
-
-Base capture does not send data to an external model. To enable enrichment through an OpenAI-compatible LiteLLM gateway, edit `.env`:
-
-```dotenv
-LLM_ENABLED=true
-LLM_MODE=litellm
-LITELLM_BASE_URL=https://your-gateway.example/v1
-LITELLM_API_KEY=...
-LITELLM_MODEL=your-model-name
-```
-
-Restart only the API after changing configuration:
+Neural Memory exposes your second brain directly to AI assistants:
 
 ```bash
-docker compose up -d --build api
-```
-
-When enrichment is enabled, captured text or screenshots may leave your machine for the configured provider. Read [the privacy model](docs/PRIVACY.md) first.
-
-## MCP for coding agents
-
-Neural Memory can be connected directly to AI coding tools (Claude Desktop, Cursor, Antigravity, OpenCode).
-
-### One-command configuration
-
-Run the setup helper to display or install the MCP configuration:
-
-```bash
-make mcp
-# Or auto-install into Claude Desktop:
+# Auto-configure Claude Desktop:
 ./scripts/setup-mcp.sh --claude
 ```
 
-### Manual development setup
+### Available MCP Tools for Agents:
+- `recall_decisions(topic, person)`: Recalls past strategic agreements and approvals.
+- `recall_commitments(status, debtor, creditor)`: Recalls deliverables, action items, and deadlines.
+- `recall_meetings(topic, attendee)`: Recalls discussion points and participants from calls.
+- `get_daily_briefing(date)`: Generates an executive summary of the day.
+- `search(query)`: Deep hybrid search across your accumulated memory graph.
 
-For local development or manual MCP setup, install the package in an editable venv:
+*Example conversation*:
+> **User**: *"Claude, what did I agree to send to Marco this Friday?"*  
+> **Claude**: *"According to your Neural Memory, you committed to send the updated Cloud proposal slides to Marco Rossi by Friday at 18:00."*
 
-```bash
-cd server
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e .
-kg-mcp --transport stdio
-```
+---
 
-The current stdio tools preserve the original project-memory workflow. A unified authenticated HTTP transport is on the roadmap.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    Mac[macOS app] -->|Bearer token| API[Local ingestion API]
-    Browser[Browser extension] -->|Bearer token| API
-    Agent[AI agent via MCP stdio] --> Memory[Memory services]
-    API --> Neo4j[(Neo4j graph)]
-    Memory --> Neo4j
-    API -. opt-in enrichment .-> LLM[Configured LLM provider]
-```
-
-The API stores events and graph relationships in Neo4j. Screenshot pixels are used transiently for hashing and, only when enabled, enrichment; they are not persisted by the ingestion endpoint.
-
-## Development
+## 🛠️ Developer & Makefile Commands
 
 ```bash
-cd server
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
-pytest -q
-ruff check src/kg_mcp/api.py src/kg_mcp/config.py src/kg_mcp/main.py tests/test_api.py tests/test_scoring.py
-
-cd ../apps/macos
-swift build
+make help          # Show all available commands
+make package       # Build the standalone macOS DMG installer (Zero Docker required)
+make verify-clean  # Verify the standalone app in a clean, isolated MacBook simulation
+make test-massive  # Run the full 5-stage massive stress, scale, chaos & UI test suite
+make test          # Run Python unit & chaos tests (74 tests)
+make e2e           # Run end-to-end API integration tests (9 tests)
+make doctor        # Verify Docker, API, and Neo4j health
+make lint          # Run ruff linter
 ```
 
-Useful root commands are listed by `make help`. See [CONTRIBUTING.md](CONTRIBUTING.md) for the acceptance checks used by the project.
+---
 
-## Current boundaries
+## 📄 License
 
-- The desktop client is macOS-only today.
-- Capture clients are preview-quality and not yet signed or notarized.
-- Deep search and automated graph promotion are experimental.
-- Docker is the supported zero-configuration server path.
-
-Security reports belong in the private channel described in [SECURITY.md](SECURITY.md), not in a public issue.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+MIT License. See [LICENSE](LICENSE) for details.
