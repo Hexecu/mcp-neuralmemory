@@ -117,10 +117,10 @@ class GraphPhysicsEngine: ObservableObject {
         // Velocity clamp and position update
         for i in 0..<n {
             if nodes[i].isFixed { continue }
-            let vx = max(-30, min(30, nodes[i].velocity.x))
-            let vy = max(-30, min(30, nodes[i].velocity.y))
-            nodes[i].position.x += vx
-            nodes[i].position.y += vy
+            nodes[i].velocity.x = max(-30, min(30, nodes[i].velocity.x))
+            nodes[i].velocity.y = max(-30, min(30, nodes[i].velocity.y))
+            nodes[i].position.x += nodes[i].velocity.x
+            nodes[i].position.y += nodes[i].velocity.y
         }
 
         // Alpha cooling
@@ -228,6 +228,9 @@ class GraphPhysicsEngine: ObservableObject {
     // MARK: - Shared Physics Primitives
 
     private func applyRepulsion(n: Int) {
+        let maxDist: CGFloat = 280.0
+        let maxDistSq: CGFloat = maxDist * maxDist
+
         for i in 0..<n {
             if nodes[i].isFixed { continue }
             var fx: CGFloat = 0
@@ -239,15 +242,19 @@ class GraphPhysicsEngine: ObservableObject {
                 let p2 = nodes[j].position
                 var dx = p1.x - p2.x
                 var dy = p1.y - p2.y
-                var dist = sqrt(dx * dx + dy * dy)
 
-                if dist < 0.1 {
+                if abs(dx) > maxDist || abs(dy) > maxDist { continue }
+
+                var distSq = dx * dx + dy * dy
+                if distSq > maxDistSq { continue }
+
+                if distSq < 0.01 {
                     dx = CGFloat.random(in: -1...1)
                     dy = CGFloat.random(in: -1...1)
-                    dist = 1.0
+                    distSq = 1.0
                 }
-                if dist < minDistance { dist = minDistance }
 
+                let dist = max(sqrt(distSq), minDistance)
                 let force = (repulsionConstant / (dist * dist)) * alpha
                 fx += (dx / dist) * force
                 fy += (dy / dist) * force

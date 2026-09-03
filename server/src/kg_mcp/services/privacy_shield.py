@@ -33,8 +33,8 @@ class PrivacyShield:
     # API keys, tokens, and secret patterns
     SECRET_PATTERNS = [
         (re.compile(r"(sk-[A-Za-z0-9_-]{20,})"), "[REDACTED_API_KEY]"),
-        (re.compile(r"(AIza[0-9A-Za-z_-]{35})"), "[REDACTED_GEMINI_KEY]"),
-        (re.compile(r"(ghp_[A-Za-z0-9]{36})"), "[REDACTED_GITHUB_TOKEN]"),
+        (re.compile(r"(AIza[0-9A-Za-z_-]{30,45})"), "[REDACTED_GEMINI_KEY]"),
+        (re.compile(r"(ghp_[A-Za-z0-9]{30,40})"), "[REDACTED_GITHUB_TOKEN]"),
         (re.compile(r"(Bearer\s+[A-Za-z0-9_\-\.]{20,})", re.IGNORECASE), "Bearer [REDACTED_TOKEN]"),
         (re.compile(r"(password[\s:=]+)[^\s,;]{4,}", re.IGNORECASE), r"\1[REDACTED_PASSWORD]"),
     ]
@@ -116,3 +116,8 @@ class PrivacyShield:
         sanitized = cls.mask_ibans(sanitized)
         sanitized = cls.mask_credit_cards(sanitized)
         return sanitized
+
+    @classmethod
+    def redact_text(cls, text: str) -> str:
+        """Alias for sanitize_text."""
+        return cls.sanitize_text(text)

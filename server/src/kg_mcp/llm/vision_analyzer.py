@@ -175,7 +175,7 @@ def _coerce_analysis(data: dict, app: str, window: str, timestamp: str) -> LifeE
 def _robust_json_loads(text: str) -> dict:
     """Parse JSON resiliently, repairing missing commas, trailing commas, and escapes."""
     import re
-    cleaned = text.strip()
+    cleaned = text.replace("\x00", "").strip()
     if "```json" in cleaned:
         m = re.search(r"```json\s*([\s\S]*?)```", cleaned)
         if m:
@@ -191,7 +191,7 @@ def _robust_json_loads(text: str) -> dict:
             cleaned = cleaned[start:end + 1]
 
     try:
-        return json.loads(cleaned)
+        return json.loads(cleaned, strict=False)
     except Exception:
         pass
 
@@ -213,14 +213,14 @@ def _robust_json_loads(text: str) -> dict:
     repaired = re.sub(r']\s*\n\s*\[', r'],\n[', repaired)
 
     try:
-        return json.loads(repaired)
+        return json.loads(repaired, strict=False)
     except Exception:
         pass
 
     # 5. Escape stray backslashes
     escaped = re.sub(r'\\(?![/u"bfnrt\\])', r'\\\\', repaired)
     try:
-        return json.loads(escaped)
+        return json.loads(escaped, strict=False)
     except Exception:
         pass
 
@@ -241,7 +241,7 @@ def _robust_json_loads(text: str) -> dict:
         new_lines.append(stripped)
     rejoined = "\n".join(new_lines)
     try:
-        return json.loads(rejoined)
+        return json.loads(rejoined, strict=False)
     except Exception:
         pass
 
@@ -252,9 +252,9 @@ def _robust_json_loads(text: str) -> dict:
         open_brackets = cut.count("[") - cut.count("]")
         open_braces = cut.count("{") - cut.count("}")
         closed = cut + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
-        return json.loads(closed)
+        return json.loads(closed, strict=False)
 
-    return json.loads(rejoined)
+    return json.loads(rejoined, strict=False)
 
 
 async def analyze_screenshot(
