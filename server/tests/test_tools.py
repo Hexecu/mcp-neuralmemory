@@ -179,7 +179,7 @@ class TestKgAutopilot:
             project_id="test-project",
             user_text="Create a login feature",
         )
-        
+
         # Simulate context pack
         context_result = await mock_context_builder.build_context_pack(
             project_id="test-project",
@@ -221,7 +221,7 @@ class TestKgTrackChanges:
     async def test_track_changes_links_multiple_files(self, mock_repository):
         """Test that track_changes can link multiple files."""
         paths = ["src/main.py", "src/utils.py", "tests/test_main.py"]
-        
+
         linked_count = 0
         for path in paths:
             await mock_repository.upsert_code_artifact(

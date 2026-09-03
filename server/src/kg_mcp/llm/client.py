@@ -64,14 +64,14 @@ class LLMClient:
         # For Gemini Direct via LiteLLM library, we might need to set the environment variable
         # or pass it explicitly. LiteLLM supports 'gemini/' prefix with GEMINI_API_KEY env.
         litellm.api_key = self.settings.gemini_api_key
-        
+
         # Use specific gemini model if set, else fallback
         self.model = self.settings.gemini_model or self.settings.llm_model
-        
+
         # If model doesn't start with gemini/, prepend it for LiteLLM
         if not self.model.startswith("gemini/") and "gemini" in self.model:
              self.model = f"gemini/{self.model}"
-             
+
         logger.info(f"Using Direct Gemini API with model {self.model}")
 
     def _configure_litellm(self):
@@ -79,7 +79,7 @@ class LLMClient:
         self.provider = "litellm"
         self.api_base = self.settings.litellm_base_url.rstrip("/")
         self.api_key = self.settings.litellm_api_key
-        
+
         # Use specific litellm model if set, else fallback
         self.model = self.settings.litellm_model or self.settings.llm_model
         logger.info(f"Using LiteLLM Gateway at {self.api_base} with model {self.model}")
@@ -128,12 +128,13 @@ class LLMClient:
                 "max_tokens": self.settings.llm_max_tokens,
                 "response_format": {"type": "json_object"},
             }
-            
+
             # Add gateway config if using LiteLLM Gateway
             if self.api_base:
                 llm_kwargs["api_base"] = self.api_base
                 llm_kwargs["api_key"] = self.api_key
-            
+                llm_kwargs["custom_llm_provider"] = "openai"
+
             response = await litellm.acompletion(**llm_kwargs)
 
             content = response.choices[0].message.content
@@ -195,12 +196,13 @@ class LLMClient:
                 "max_tokens": 2048,
                 "response_format": {"type": "json_object"},
             }
-            
+
             # Add gateway config if using LiteLLM Gateway
             if self.api_base:
                 llm_kwargs["api_base"] = self.api_base
                 llm_kwargs["api_key"] = self.api_key
-            
+                llm_kwargs["custom_llm_provider"] = "openai"
+
             response = await litellm.acompletion(**llm_kwargs)
 
             content = response.choices[0].message.content
@@ -216,6 +218,81 @@ class LLMClient:
             return LinkingResult()
         except Exception as e:
             logger.error(f"LLM linking failed: {e}")
+            raise
+
+    async def generate(
+        self,
+        prompt: str,
+        system_prompt: str = "You are a helpful assistant.",
+        json_mode: bool = False,
+        max_tokens: Optional[int] = None
+    ) -> str:
+        """
+        Generic text generation with LLM.
+
+        Args:
+            prompt: User prompt
+            system_prompt: System instruction
+            json_mode: Whether to enforce JSON output
+            max_tokens: Max output tokens
+
+        Returns:
+            Generated text content
+        """
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
+        llm_kwargs = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.settings.llm_temperature,
+            "max_tokens": max_tokens or self.settings.llm_max_tokens,
+        }
+
+        if json_mode:
+            llm_kwargs["response_format"] = {"type": "json_object"}
+
+        if self.api_base:
+            llm_kwargs["api_base"] = self.api_base
+            llm_kwargs["api_key"] = self.api_key
+            llm_kwargs["custom_llm_provider"] = "openai"
+
+        try:
+            response = await litellm.acompletion(**llm_kwargs)
+            return response.choices[0].message.content or ""
+        except Exception as e:
+            logger.error(f"LLM generation failed: {e}")
+            raise
+
+    async def embed(self, text: str) -> List[float]:
+        """
+        Generate vector embedding for text.
+
+        Returns:
+            List of floats (embedding vector)
+        """
+        try:
+            # Use text-embedding-3-small or configured embedding model
+            model = "text-embedding-3-small"
+
+            kwargs = {
+                "model": model,
+                "input": [text]
+            }
+
+            if self.api_base:
+                kwargs["api_base"] = self.api_base
+                kwargs["api_key"] = self.api_key
+                kwargs["custom_llm_provider"] = "openai"
+
+            response = await litellm.aembedding(**kwargs)
+            return response.data[0]["embedding"]
+        except Exception as e:
+            logger.warning(f"Embedding generation failed: {e}")
+            # Return zero vector fallback or None handling downstream
+            # For now re-raise to see errors in logs
             raise
 
     def _parse_extraction_result(self, data: Dict[str, Any]) -> ExtractionResult:

@@ -27,6 +27,7 @@ wheels/
 # PyInstaller
 *.manifest
 *.spec
+dist_daemon/
 
 # Installer logs
 pip-log.txt
@@ -123,3 +124,9 @@ Thumbs.db
 # Project specific
 *.log
 *.bak
+*.db
+*.sqlite*
+recent_activity*
+*.app/
+apps/macos/.build/
+.backups/

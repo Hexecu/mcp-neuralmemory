@@ -1,100 +1,64 @@
-# MCP-KG-Memory Makefile
-# Quick commands for development and deployment
+.PHONY: help setup up down logs doctor test test-massive e2e lint macos package verify-clean mcp
 
-.PHONY: help install setup dev test lint format clean neo4j-up neo4j-down schema server
-
-# Default target
 help:
-	@echo "MCP-KG-Memory Development Commands"
-	@echo ""
-	@echo "Setup:"
-	@echo "  make install     - Install dependencies"
-	@echo "  make setup       - Run interactive setup wizard"
-	@echo "  make dev         - Install with dev dependencies"
-	@echo ""
-	@echo "Database:"
-	@echo "  make neo4j-up    - Start Neo4j container"
-	@echo "  make neo4j-down  - Stop Neo4j container"
-	@echo "  make schema      - Apply Neo4j schema"
-	@echo ""
-	@echo "Server:"
-	@echo "  make server      - Run MCP server (HTTP mode)"
-	@echo "  make server-stdio - Run MCP server (STDIO mode)"
-	@echo ""
-	@echo "Development:"
-	@echo "  make test        - Run tests"
-	@echo "  make lint        - Run linter"
-	@echo "  make format      - Format code"
-	@echo "  make clean       - Clean build artifacts"
-
-# Installation
-install:
-	cd server && python -m venv .venv && \
-	. .venv/bin/activate && \
-	pip install --upgrade pip && \
-	pip install -e .
-
-dev:
-	cd server && python -m venv .venv && \
-	. .venv/bin/activate && \
-	pip install --upgrade pip && \
-	pip install -e ".[dev]"
+	@echo "Neural Memory"
+	@echo "  make setup        Generate local credentials and start the stack"
+	@echo "  make doctor       Check the local installation"
+	@echo "  make test         Run backend regression tests"
+	@echo "  make test-massive Run comprehensive massive stress, chaos, scale & UI E2E suite"
+	@echo "  make package      Build standalone DMG installer (Zero Docker, Zero Prerequisites)"
+	@echo "  make verify-clean Test standalone app in simulated clean environment"
+	@echo "  make e2e          Run end-to-end integration tests"
+	@echo "  make macos        Build the native macOS client"
+	@echo "  make mcp          Configure MCP for Claude Desktop and Cursor"
+	@echo "  make down         Stop the stack without deleting your graph"
 
 setup:
-	cd server && . .venv/bin/activate && kg-mcp-setup
+	./scripts/bootstrap.sh
 
-# Database commands
-neo4j-up:
-	docker compose up -d neo4j
-	@echo "Waiting for Neo4j to be ready..."
-	@sleep 15
-	@echo "Neo4j should be ready at http://localhost:7474"
+up:
+	docker compose up --detach
 
-neo4j-down:
+down:
 	docker compose down
 
-neo4j-logs:
-	docker compose logs -f neo4j
+logs:
+	docker compose logs --follow api neo4j
 
-schema:
-	cd server && . .venv/bin/activate && python -m kg_mcp.kg.apply_schema
+doctor:
+	./scripts/doctor.sh
 
-# Server commands
-server:
-	cd server && . .venv/bin/activate && kg-mcp --transport http
-
-server-stdio:
-	cd server && . .venv/bin/activate && kg-mcp --transport stdio
-
-# Development commands
 test:
-	cd server && . .venv/bin/activate && pytest tests/ -v
+	cd server && python -m pytest -q
 
-test-cov:
-	cd server && . .venv/bin/activate && pytest tests/ --cov=kg_mcp --cov-report=html
+test-massive:
+	@echo "🔥 Running Massive Test Battery..."
+	@echo "1/5. Python Unit & Chaos Fuzzing Suite"
+	cd server && python -m pytest -q
+	@echo "2/5. Swift Scale, 500-Node Physics & UI Contracts"
+	cd apps/macos && swift test
+	@echo "3/5. High-Throughput Concurrency & Load Benchmark"
+	python3 ./scripts/massive_stress_test.py --concurrency 30 --events 100
+	@echo "4/5. Graphical & UI Window Hierarchy E2E"
+	python3 ./scripts/verify_ui_graphics.py
+	@echo "5/5. End-to-End Core Integration Suite"
+	./scripts/test-e2e.sh
+	@echo "🎉 All Massive Tests & UI E2E Verifications Passed!"
+
+e2e:
+	./scripts/test-e2e.sh
 
 lint:
-	cd server && . .venv/bin/activate && ruff check src/ tests/
+	cd server && ruff check src/kg_mcp/api.py src/kg_mcp/config.py src/kg_mcp/main.py src/kg_mcp/image_hash.py src/kg_mcp/mcp/life_tools.py tests/test_api.py tests/test_scoring.py
 
-format:
-	cd server && . .venv/bin/activate && black src/ tests/
+package:
+	./scripts/package_installer.sh
 
-typecheck:
-	cd server && . .venv/bin/activate && mypy src/
+verify-clean:
+	./scripts/verify_clean_environment.sh
 
-# Cleanup
-clean:
-	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null || true
-	find . -type d -name ".mypy_cache" -exec rm -rf {} + 2>/dev/null || true
-	find . -type d -name "*.egg-info" -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
-	rm -rf server/htmlcov server/.coverage 2>/dev/null || true
+macos:
+	cd apps/macos && ./bundle_app.sh
 
-# Full development setup
-full-setup: install neo4j-up
-	@sleep 20
-	$(MAKE) schema
-	@echo ""
-	@echo "✓ Full setup complete!"
-	@echo "Run 'make server' to start the MCP server"
+mcp:
+	./scripts/setup-mcp.sh

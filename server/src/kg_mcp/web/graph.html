@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neural Memory — Knowledge Graph Visualizer</title>
+  <style>
+    :root {
+      --bg: #0b0c16;
+      --card-bg: rgba(26, 27, 46, 0.85);
+      --border: rgba(255, 255, 255, 0.12);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #8b5cf6;
+      --decision: #10b981;
+      --commitment: #f59e0b;
+      --meeting: #3b82f6;
+      --reflection: #ec4899;
+      --person: #06b6d4;
+      --topic: #a855f7;
+      --artifact: #64748b;
+      --insight: #14b8a6;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: radial-gradient(circle at 50% 20%, #171933 0%, #080912 100%);
+      color: var(--text);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* Top Bar */
+    header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 64px;
+      background: rgba(11, 12, 22, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #a855f7, #3b82f6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px rgba(168, 85, 247, 0.4);
+    }
+
+    .brand-title {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .search-box {
+      position: relative;
+    }
+
+    .search-box input {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 8px 16px 8px 36px;
+      font-size: 13px;
+      color: #fff;
+      width: 220px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .search-box input:focus {
+      width: 280px;
+      border-color: var(--accent);
+      box-shadow: 0 0 12px rgba(139, 92, 246, 0.3);
+    }
+
+    .search-box svg {
+      position: absolute;
+      left: 12px; top: 9px;
+      width: 14px; height: 14px;
+      fill: var(--text-muted);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s ease;
+      border: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-primary:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    /* Filter Bar */
+    .filter-bar {
+      position: absolute;
+      top: 80px; left: 24px;
+      display: flex;
+      gap: 8px;
+      z-index: 5;
+    }
+
+    .filter-chip {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      background: rgba(18, 20, 38, 0.8);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-chip.active {
+      background: var(--chip-color, var(--accent));
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+    }
+
+    /* Main Canvas Area */
+    #graph-container {
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* Inspector Sidebar */
+    .inspector {
+      position: absolute;
+      top: 80px; right: 24px; bottom: 24px;
+      width: 380px;
+      background: var(--card-bg);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      transform: translateX(420px);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow-y: auto;
+      z-index: 20;
+    }
+
+    .inspector.open {
+      transform: translateX(0);
+    }
+
+    .inspector-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .close-btn {
+      background: none; border: none;
+      color: var(--text-muted);
+      font-size: 20px;
+      cursor: pointer;
+    }
+
+    .inspector-title {
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.3;
+      margin-bottom: 12px;
+    }
+
+    .prop-row {
+      margin-bottom: 14px;
+    }
+
+    .prop-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .prop-val {
+      font-size: 13px;
+      line-height: 1.5;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    /* Stats Footer */
+    .stats-footer {
+      position: absolute;
+      bottom: 20px; left: 24px;
+      background: rgba(18, 20, 38, 0.8);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 16px;
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      z-index: 5;
+    }
+
+    .stats-footer span b {
+      color: #fff;
+    }
+  </style>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🧠</div>
+      <div>
+        <div class="brand-title">Neural Memory Graph</div>
+        <div class="brand-subtitle">Interactive Cognitive Architecture</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box">
+        <svg viewBox="0 0 24 24"><path d="M21.71 20.29l-5.4-5.4A7.9 7.9 0 0 0 18 10a8 8 0 1 0-8 8 7.9 7.9 0 0 0 4.89-1.69l5.4 5.4a1 1 0 0 0 1.42 0 1 1 0 0 0 0-1.42zM4 10a6 6 0 1 1 6 6 6 6 0 0 1-6-6z"/></svg>
+        <input type="text" id="search" placeholder="Search people, decisions, topics...">
+      </div>
+      <button class="btn btn-secondary" onclick="loadGraphData()">↻ Refresh</button>
+      <a class="btn btn-primary" href="http://127.0.0.1:8774/browser/" target="_blank">Open Neo4j Browser ↗</a>
+    </div>
+  </header>
+
+  <div class="filter-bar">
+    <div class="filter-chip active" data-filter="all" onclick="setFilter('all')">All Nodes</div>
+    <div class="filter-chip" style="--chip-color: var(--decision)" data-filter="Decision" onclick="setFilter('Decision')">Decisions</div>
+    <div class="filter-chip" style="--chip-color: var(--commitment)" data-filter="Commitment" onclick="setFilter('Commitment')">Commitments</div>
+    <div class="filter-chip" style="--chip-color: var(--meeting)" data-filter="Meeting" onclick="setFilter('Meeting')">Meetings</div>
+    <div class="filter-chip" style="--chip-color: var(--reflection)" data-filter="Reflection" onclick="setFilter('Reflection')">Dream Reflections</div>
+    <div class="filter-chip" style="--chip-color: var(--person)" data-filter="Person" onclick="setFilter('Person')">People</div>
+    <div class="filter-chip" style="--chip-color: var(--topic)" data-filter="Topic" onclick="setFilter('Topic')">Topics</div>
+  </div>
+
+  <div id="graph-container">
+    <svg id="graph-svg" width="100%" height="100%"></svg>
+  </div>
+
+  <div class="inspector" id="inspector">
+    <div class="inspector-header">
+      <span class="badge" id="insp-badge">Node</span>
+      <button class="close-btn" onclick="closeInspector()">×</button>
+    </div>
+    <div class="inspector-title" id="insp-title">Title</div>
+    <div id="insp-content"></div>
+  </div>
+
+  <div class="stats-footer">
+    <span>Nodes: <b id="stat-nodes">0</b></span>
+    <span>Edges: <b id="stat-edges">0</b></span>
+    <span>Decisions: <b id="stat-decisions">0</b></span>
+    <span>Commitments: <b id="stat-commitments">0</b></span>
+    <span>Reflections: <b id="stat-reflections">0</b></span>
+  </div>
+
+  <script>
+    let rawGraph = { nodes: [], links: [] };
+    let currentFilter = 'all';
+    let simulation, svg, g, linkElements, nodeElements, textElements;
+
+    const COLOR_MAP = {
+      Decision: '#10b981',
+      Commitment: '#f59e0b',
+      Meeting: '#3b82f6',
+      Reflection: '#ec4899',
+      Person: '#06b6d4',
+      Topic: '#a855f7',
+      Artifact: '#64748b',
+      Insight: '#14b8a6',
+      Default: '#94a3b8'
+    };
+
+    function getNodeColor(d) {
+      for (const label of (d.labels || [])) {
+        if (COLOR_MAP[label]) return COLOR_MAP[label];
+      }
+      return COLOR_MAP.Default;
+    }
+
+    function getNodeRadius(d) {
+      if (d.labels.includes('Decision') || d.labels.includes('Reflection')) return 22;
+      if (d.labels.includes('Meeting') || d.labels.includes('Person')) return 18;
+      if (d.labels.includes('Commitment')) return 16;
+      return 12;
+    }
+
+    async function loadGraphData() {
+      try {
+        const res = await fetch('/api/graph/data');
+        const data = await res.json();
+        rawGraph = data;
+        updateStats(data);
+        renderGraph();
+      } catch (err) {
+        console.error('Failed to load graph data:', err);
+      }
+    }
+
+    function updateStats(data) {
+      document.getElementById('stat-nodes').innerText = data.nodes.length;
+      document.getElementById('stat-edges').innerText = data.links.length;
+      document.getElementById('stat-decisions').innerText = data.nodes.filter(n => n.labels.includes('Decision')).length;
+      document.getElementById('stat-commitments').innerText = data.nodes.filter(n => n.labels.includes('Commitment')).length;
+      document.getElementById('stat-reflections').innerText = data.nodes.filter(n => n.labels.includes('Reflection')).length;
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.filter === filter);
+      });
+      renderGraph();
+    }
+
+    function renderGraph() {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      // Filter nodes and links
+      let filteredNodes = rawGraph.nodes;
+      if (currentFilter !== 'all') {
+        filteredNodes = rawGraph.nodes.filter(n => n.labels.includes(currentFilter));
+      }
+
+      const activeIds = new Set(filteredNodes.map(n => n.id));
+      const filteredLinks = rawGraph.links.filter(l => 
+        activeIds.has(typeof l.source === 'object' ? l.source.id : l.source) &&
+        activeIds.has(typeof l.target === 'object' ? l.target.id : l.target)
+      );
+
+      svg = d3.select('#graph-svg');
+      svg.selectAll('*').remove();
+
+      // Setup zoom
+      g = svg.append('g');
+      const zoom = d3.zoom()
+        .scaleExtent([0.1, 4])
+        .on('zoom', (event) => g.attr('transform', event.transform));
+      svg.call(zoom);
+
+      // Simulation
+      simulation = d3.forceSimulation(filteredNodes)
+        .force('link', d3.forceLink(filteredLinks).id(d => d.id).distance(90))
+        .force('charge', d3.forceManyBody().strength(-240))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(d => getNodeRadius(d) + 10));
+
+      // Edges
+      linkElements = g.append('g')
+        .attr('stroke', 'rgba(255, 255, 255, 0.15)')
+        .attr('stroke-width', 1.2)
+        .selectAll('line')
+        .data(filteredLinks)
+        .join('line');
+
+      // Nodes
+      nodeElements = g.append('g')
+        .selectAll('circle')
+        .data(filteredNodes)
+        .join('circle')
+        .attr('r', d => getNodeRadius(d))
+        .attr('fill', d => getNodeColor(d))
+        .attr('stroke', 'rgba(255, 255, 255, 0.4)')
+        .attr('stroke-width', 1.5)
+        .style('cursor', 'pointer')
+        .call(d3.drag()
+          .on('start', dragstarted)
+          .on('drag', dragged)
+          .on('end', dragended)
+        )
+        .on('click', (event, d) => inspectNode(d));
+
+      // Labels
+      textElements = g.append('g')
+        .selectAll('text')
+        .data(filteredNodes)
+        .join('text')
+        .text(d => d.name || d.title || d.label || '')
+        .attr('font-size', '11px')
+        .attr('fill', '#e2e8f0')
+        .attr('dx', 14)
+        .attr('dy', 4)
+        .attr('pointer-events', 'none')
+        .style('text-shadow', '0 1px 4px rgba(0,0,0,0.8)');
+
+      simulation.on('tick', () => {
+        linkElements
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        nodeElements
+          .attr('cx', d => d.x)
+          .attr('cy', d => d.y);
+
+        textElements
+          .attr('x', d => d.x)
+          .attr('y', d => d.y);
+      });
+    }
+
+    function dragstarted(event) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
+    }
+
+    function dragged(event) {
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
+    }
+
+    function dragended(event) {
+      if (!event.active) simulation.alphaTarget(0);
+      event.subject.fx = null;
+      event.subject.fy = null;
+    }
+
+    function inspectNode(node) {
+      const panel = document.getElementById('inspector');
+      const badge = document.getElementById('insp-badge');
+      const title = document.getElementById('insp-title');
+      const content = document.getElementById('insp-content');
+
+      const primaryLabel = (node.labels || ['Node'])[0];
+      badge.innerText = primaryLabel;
+      badge.style.background = getNodeColor(node);
+      badge.style.color = '#fff';
+
+      title.innerText = node.name || node.title || node.label || 'Node Details';
+
+      let html = '';
+      if (node.verdict) {
+        html += `<div class="prop-row"><div class="prop-label">Verdict</div><div class="prop-val" style="color: #10b981; font-weight: bold;">${node.verdict}</div></div>`;
+      }
+      if (node.rationale) {
+        html += `<div class="prop-row"><div class="prop-label">Rationale</div><div class="prop-val">${node.rationale}</div></div>`;
+      }
+      if (node.task_description || node.task) {
+        html += `<div class="prop-row"><div class="prop-label">Task</div><div class="prop-val">${node.task_description || node.task}</div></div>`;
+      }
+      if (node.due_date_iso || node.due_date) {
+        html += `<div class="prop-row"><div class="prop-label">Due Date</div><div class="prop-val">${node.due_date_iso || node.due_date}</div></div>`;
+      }
+      if (node.synthesis) {
+        html += `<div class="prop-row"><div class="prop-label">Dream Synthesis</div><div class="prop-val">${node.synthesis}</div></div>`;
+      }
+      if (node.suggestion || node.actionable_suggestion) {
+        html += `<div class="prop-row"><div class="prop-label">Actionable Advice</div><div class="prop-val" style="color: #a855f7;">${node.suggestion || node.actionable_suggestion}</div></div>`;
+      }
+      if (node.takeaway) {
+        html += `<div class="prop-row"><div class="prop-label">Key Takeaway</div><div class="prop-val">${node.takeaway}</div></div>`;
+      }
+      if (node.source_url_or_doc) {
+        html += `<div class="prop-row"><div class="prop-label">Source</div><div class="prop-val"><a href="${node.source_url_or_doc}" target="_blank" style="color:#38bdf8;">${node.source_url_or_doc}</a></div></div>`;
+      }
+
+      content.innerHTML = html;
+      panel.classList.add('open');
+    }
+
+    function closeInspector() {
+      document.getElementById('inspector').classList.remove('open');
+    }
+
+    // Search filter
+    document.getElementById('search').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!q) {
+        nodeElements.attr('opacity', 1);
+        textElements.attr('opacity', 1);
+        linkElements.attr('opacity', 1);
+        return;
+      }
+
+      nodeElements.attr('opacity', d => {
+        const text = (d.name || d.title || d.label || '').toLowerCase();
+        return text.includes(q) ? 1 : 0.15;
+      });
+
+      textElements.attr('opacity', d => {
+        const text = (d.name || d.title || d.label || '').toLowerCase();
+        return text.includes(q) ? 1 : 0.1;
+      });
+
+      linkElements.attr('opacity', 0.05);
+    });
+
+    // Initial load
+    window.addEventListener('load', loadGraphData);
+  </script>
+</body>
+</html>

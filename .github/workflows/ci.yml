@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: server/pyproject.toml
+      - run: python -m pip install -e '.[dev]'
+        working-directory: server
+      - name: Lint the v0.2 boundary
+        run: >-
+          ruff check src/kg_mcp/api.py src/kg_mcp/config.py src/kg_mcp/main.py
+          src/kg_mcp/image_hash.py src/kg_mcp/mcp/life_tools.py
+          tests/test_api.py tests/test_scoring.py
+        working-directory: server
+      - run: pytest -q
+        working-directory: server
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+        working-directory: apps/macos
+
+  container:
+    runs-on: ubuntu-latest
+    env:
+      NEO4J_PASSWORD: ci-only-database-password
+      KG_MCP_TOKEN: ci-only-api-token
+      NEURAL_MEMORY_PORT: 18765
+      NEO4J_HTTP_PORT: 17474
+      NEO4J_BOLT_PORT: 17687
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the isolated stack
+        run: docker compose --project-name neural-memory-ci up --detach --build
+      - name: Verify health and authenticated ingestion
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:18765/health > /tmp/health.json; then
+              break
+            fi
+            if [ "$attempt" = 60 ]; then
+              docker compose --project-name neural-memory-ci logs
+              exit 1
+            fi
+            sleep 2
+          done
+          python - <<'PY'
+          import json
+          assert json.load(open('/tmp/health.json'))['service'] == 'neural-memory'
+          PY
+          curl --fail --silent \
+            -H 'Authorization: Bearer ci-only-api-token' \
+            -H 'Content-Type: application/json' \
+            -d '{"project_id":"ci","event_type":"smoke_test","data":{"source":"github-actions"}}' \
+            http://127.0.0.1:18765/api/ingest/event | python -c 'import json,sys; assert json.load(sys.stdin)["id"]'
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose --project-name neural-memory-ci logs
+      - name: Stop the isolated stack
+        if: always()
+        run: docker compose --project-name neural-memory-ci down --volumes
+
+  repository-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject private runtime artifacts
+        run: |
+          ! git ls-files | grep -E '(^|/)(recent_activity.*|.*\.(db|sqlite|sqlite3)|\.env)$'
+          ! git grep -I -E '(sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|AKIA[0-9A-Z]{16})' -- . ':!*.lock'

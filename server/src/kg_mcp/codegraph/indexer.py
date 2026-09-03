@@ -11,7 +11,7 @@ For production use, consider integrating:
 import hashlib
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Set
 
@@ -120,7 +120,7 @@ class CodeIndexer:
 
         return CodeGraphSnapshot(
             project_id=self.project_id,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             files=files,
             references=references,
         )

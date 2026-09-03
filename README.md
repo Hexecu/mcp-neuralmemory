@@ -1,248 +1,111 @@
-# 🧠 MCP-KG-Memory
+# 🧠 Neural Memory
 
-<div align="center">
+[![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-blue.svg)](apps/macos)
+[![Architecture](https://img.shields.io/badge/architecture-Dual--Track%20(Standalone%20%7C%20Docker)-success.svg)](docs/ARCHITECTURE.md)
+[![Tests](https://img.shields.io/badge/tests-74%20Python%20%7C%2015%20Swift%20PASS-brightgreen.svg)](docs/TESTING.md)
+[![Zero-Docker](https://img.shields.io/badge/standalone-Zero%20Docker%20Required-orange.svg)](docs/STANDALONE_INSTALLER.md)
+[![License](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11+-green.svg)
-![License](https://img.shields.io/badge/license-Apache_2.0-orange.svg)
-![Neo4j](https://img.shields.io/badge/neo4j-5.x-blueviolet.svg)
-![MCP](https://img.shields.io/badge/MCP-Standard-purple.svg)
-
-**The Long-Term Memory Layer for AI Coding Agents**
-
-*Give your AI Assistant a brain that persists context, learns from past mistakes, and understands your project's goals.*
-
-[Quick Start](#-quick-start) • [Features](#-features) • [Installation](#-installation) • [Configuration](#-configuration) • [License](#-license)
-
-</div>
+**Neural Memory** is a local-first personal cognitive memory assistant and second brain. It turns the desktop context you choose to share into an autonomous, searchable knowledge graph — anchoring real-world micro-feedback (like an *"Ok"* to an email quote), tracking commitments and decisions, and exposing your context directly to AI tools via the **Model Context Protocol (MCP)**.
 
 ---
 
-## 📖 Overview
+## ⚡ Quick Start: Choose Your Track
 
-**MCP-KG-Memory** is a production-grade **Model Context Protocol (MCP) Server** designed to solve the "context amnesia" problem in AI coding assistants (Cursor, Windsurf, VS Code, Antigravity).
+Neural Memory offers a **Dual-Track Architecture** designed for both casual MacBook users and developer power users:
 
-Instead of starting from zero every session, this system maintains a persistent **Knowledge Graph** of your project. It acts as an active memory layer that tracks:
-- **🎯 Goals & Status:** What are we building? What is done?
-- **🛑 Constraints & Rules:** Architectural decisions, forbidden patterns.
-- **💡 Strategies & Outcomes:** What worked? What failed? (Automatic learning)
-- **❤️ User Preferences:** How do you like your code written?
-- **🔗 Code Relationships:** Semantic links between goals and specific files.
+### Track B: Standalone Packed Installer (Recommended for Users)
+> **Zero prerequisites. No Docker, no Python, no Homebrew, no terminal commands.**
 
-### 📸 Visualization
-*Real-time visualization of the Knowledge Graph memory structure.*
+1. Download **`NeuralMemoryAgent-0.2.0-Installer.dmg`** (approx. 112 MB).
+2. Open the disk image and drag **`NeuralMemoryAgent.app`** to your **Applications** folder.
+3. Launch the app from Applications.
+   - Starts an embedded native daemon in under 0.2 seconds.
+   - Stores all data locally in `~/Library/Application Support/NeuralMemory/memory.db`.
+   - Access the menu bar icon, temporal graph, and settings instantly.
+   - *Full guide: [docs/STANDALONE_INSTALLER.md](docs/STANDALONE_INSTALLER.md)*.
 
-![Knowledge Graph Visualization](assets/images/graph-viz.png)
-
----
-
-## ✨ Features
-
-### 🧠 Active Context Injection (`kg_autopilot`)
-Every time you start a task, the agent consults the memory. It automatically retrieves:
-- Active goals relevant to your current work.
-- Past failed attempts (to avoid repeating them) and successful strategies.
-- Your specific coding preferences (SOLID, Clean Arch, etc.).
-
-### 🔍 Semantic & Graph Search
-Don't just grep strings. The system traverses the graph (k-hops) to find connected context.
-*"I'm working on Auth"* → Retrieval includes User model, JWT utility, and the relevant security constraints defined 2 weeks ago.
-
-### 📝 Strategic Learning
-The system isn't static. It learns:
-- **Implicit Learning:** Infers strategies and patterns from your conversations.
-- **Outcome Tracking:** Remembers if a strategy "Success" or "Failure" to guide future decisions.
-
-### ⚡ Technology Stack
-- **Core:** Python 3.11+
-- **Database:** Neo4j (Graph Database)
-- **LLM:** Google Gemini 2.5 (via Direct API or LiteLLM Gateway)
-- **Protocol:** Model Context Protocol (MCP)
-
----
-
-## 🚀 Installation
-
-You can install `kg-mcp` globally using `pipx` (recommended) or in a local virtual environment.
-
-### Prerequisites
-
-- **Python 3.11+**
-- **Docker** (for running Neo4j locally)
-- **Gemini API Key** ([Get Key from Google AI Studio](https://aistudio.google.com/api-keys))
-
-### Option 1: One-Line Install (Recommended)
+### Track A: Open Local Development Stack (For Developers)
+> **Full Docker Compose + Neo4j 5.26 Community Graph Database.**
 
 ```bash
-# Install the package
-pipx install kg-mcp
-
-# Run the interactive Setup Wizard
-kg-mcp-setup
-```
-
-The wizard will:
-1.  Check for Docker and Neo4j.
-2.  Ask for your **Gemini API Key**.
-3.  Configure the **LLM Mode** (Direct vs LiteLLM).
-4.  Generate a secure `.env` file.
-
-<details>
-<summary>❓ Don't have <code>pipx</code>? Click here to install it</summary>
-
-**macOS:**
-```bash
-brew install pipx
-pipx ensurepath
-```
-
-**Windows:**
-```bash
-winget install pipx
-pipx ensurepath
-```
-
-**Linux (Debian/Ubuntu):**
-```bash
-sudo apt install pipx
-pipx ensurepath
-```
-
-*Restart your terminal after installing pipx.*
-
-</details>
-
-#### Alternative: Standard Pip
-
-If you prefer not to use pipx:
-```bash
-pip install kg-mcp
-kg-mcp-setup
-```
-
-### Option 2: Manual Development Setup
-
-```bash
-# Clone the repository
 git clone https://github.com/Hexecu/mcp-neuralmemory.git
 cd mcp-neuralmemory
-
-# Set up environment
-cp .env.example .env
-# (Edit .env with your credentials)
-
-# Install dependencies
-cd server
-pip install -e .
-
-# Start Neo4j
-docker compose up -d
-
-# Initialize Schema
-python -m kg_mcp.kg.apply_schema
+./scripts/bootstrap.sh
 ```
+
+- Verifies installation: `./scripts/doctor.sh`
+- Graph API: `http://127.0.0.1:8765/health`
+- Neo4j Browser: `http://127.0.0.1:8774` (User: `neo4j`, Password in `.env`)
+- Stop without losing data: `make down`
+- Re-start: `make up`
 
 ---
 
-## ⚙️ Configuration
+## 🌟 Why Neural Memory is Different
 
-To use this memory server with your AI Editor, add the following configuration to your MCP config file.
+- 🔒 **PrivacyShield Redaction**: In-memory regex and Luhn checksum filtering automatically masks credit cards, IBANs, API keys (`sk-...`, `AIza...`, GitHub tokens), and ignores password vaults (`1Password`, `Bitwarden`, `Keychain`).
+- 🎯 **Contextual Micro-Feedback Anchoring**: Eliminates arbitrary length cutoffs. When you type *"Ok, proceed with the 5,000 EUR quote"*, vision analysis anchors your consent directly to the sender, amount, and proposal document.
+- 🌌 **Temporal Knowledge Graph**:
+  - **Regional Topic Clusters**: Orbital regional gravity organizes entities into clean thematic galaxies without central collapse.
+  - **Timeline Stream**: Horizontal chronological layout with 5 semantic altitude lanes (*Reflections*, *Decisions*, *Meetings*, *Commitments*, *Topics*).
+  - **Time-Travel Scrubber**: Interactive slider to replay memory history with Ebbinghaus memory decay ($R = e^{-\Delta t / S}$).
+- 🤖 **Agent-Ready Memory (MCP)**: Native Model Context Protocol server over `stdio` lets Claude Desktop, Cursor, Antigravity, and OpenCode recall past decisions, open commitments, and meeting notes.
+- 🌙 **Cognitive Dream Mode**: Periodically prunes ephemeral low-level events (48h retention) and derives higher-order reflections and daily executive briefings.
 
-### 🩺 Verify Installation ("Doctor Mode")
-Before configuring your editor, run the verification script to ensure everything is Green:
+---
+
+## 📚 Complete Documentation Sitemap
+
+| Guide | Description |
+| :--- | :--- |
+| **[System Architecture](docs/ARCHITECTURE.md)** | Deep technical dive into the Dual-Track execution model, data pipelines, and storage engines. |
+| **[Standalone Installer Guide](docs/STANDALONE_INSTALLER.md)** | Step-by-step installation, permissions setup, and clean-environment testing on macOS. |
+| **[Temporal Knowledge Graph](docs/TEMPORAL_GRAPH.md)** | Orbital physics model, semantic altitude lanes, time scrubber, and Ebbinghaus decay. |
+| **[Cognitive Ontology](docs/ONTOLOGY.md)** | Entity schemas (`Decision`, `Commitment`, `Meeting`, `Reflection`), relationship semantics, and queries. |
+| **[Model Context Protocol (MCP)](docs/MCP_TOOLS.md)** | Tool schemas (`recall_decisions`, `recall_commitments`, etc.) and configuration for Claude & Cursor. |
+| **[Privacy Model & PrivacyShield](docs/PRIVACY.md)** | Data flow guarantees, deny-lists, masking algorithms, and ephemeral event pruning. |
+| **[Testing & Verification](docs/TESTING.md)** | The 5-stage massive test battery (`make test-massive`) and clean simulation (`make verify-clean`). |
+
+---
+
+## 🤖 Connect to AI Agents (Claude Desktop & Cursor)
+
+Neural Memory exposes your second brain directly to AI assistants:
+
 ```bash
-python3 verify_setup.py
+# Auto-configure Claude Desktop:
+./scripts/setup-mcp.sh --claude
 ```
 
-### Editor Configuration (JSON)
+### Available MCP Tools for Agents:
+- `recall_decisions(topic, person)`: Recalls past strategic agreements and approvals.
+- `recall_commitments(status, debtor, creditor)`: Recalls deliverables, action items, and deadlines.
+- `recall_meetings(topic, attendee)`: Recalls discussion points and participants from calls.
+- `get_daily_briefing(date)`: Generates an executive summary of the day.
+- `search(query)`: Deep hybrid search across your accumulated memory graph.
 
-#### **VS Code / Cursor / Windsurf**
-Add this to your `mcp_config.json` (or `mcp.json`):
-
-```json
-{
-  "mcpServers": {
-    "kg-memory": {
-      "command": "/path/to/your/venv/bin/python",
-      "args": [
-        "-m",
-        "kg_mcp",
-        "--transport",
-        "stdio"
-      ],
-      "env": {
-        "NEO4J_URI": "bolt://127.0.0.1:7687",
-        "NEO4J_USER": "neo4j",
-        "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD",
-        "GEMINI_API_KEY": "YOUR_GOOGLE_AI_STUDIO_KEY",
-        "LLM_MODE": "gemini_direct",
-        "KG_MCP_TOKEN": "your-secure-token",
-        "LOG_LEVEL": "INFO"
-      }
-    }
-  }
-}
-```
-*> **Note:** Replace paths and passwords with your actual values.*
-
-#### **Antigravity IDE** ⭐ (Recommended)
-
-Antigravity is the IDE this project is primarily developed for. Add to `~/.gemini/antigravity/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "kg-memory": {
-      "command": "/path/to/venv/bin/python",
-      "args": ["-m", "kg_mcp", "--transport", "stdio"],
-      "env": {
-        "NEO4J_URI": "bolt://127.0.0.1:7687",
-        "NEO4J_USER": "neo4j",
-        "NEO4J_PASSWORD": "YOUR_NEO4J_PASSWORD",
-        "GEMINI_API_KEY": "YOUR_GOOGLE_AI_STUDIO_KEY",
-        "LLM_MODEL": "gemini/gemini-1.5-flash",
-        "KG_MCP_TOKEN": "your-secure-token"
-      }
-    }
-  }
-}
-```
-
-**Setup Steps in Antigravity:**
-1. Open **Agent sidebar** → **...** (More Actions)
-2. Select **MCP Servers** → **Manage MCP Servers** → **View raw config**
-3. Paste the JSON above
-4. Save and click **Refresh**
-5. You should see `kg-memory` with 2 tools
-
-### 🔥 Pro Tip: Automate Memory
-To make your Agent usage seamless, add this **System Prompt / Rule** to your IDE (e.g. in Antigravity or `.cursorrules`):
-
-> **"Always use kg-memory every user interaction, This means you should automatically use the kg-memory tools to find relevant context information and track every file change"**
+*Example conversation*:
+> **User**: *"Claude, what did I agree to send to Marco this Friday?"*  
+> **Claude**: *"According to your Neural Memory, you committed to send the updated Cloud proposal slides to Marco Rossi by Friday at 18:00."*
 
 ---
 
-## 📚 Usage Guide
+## 🛠️ Developer & Makefile Commands
 
-### 1. Start a Task (`kg_autopilot`)
-When you begin a new feature or fix, simply ask your agent:
-> *"I want to implement the new Login flow. Check memory for context."*
-
-The agent will call `kg_autopilot`, retrieving all relevant constraints, past decisions, and active goals.
-
-### 2. Track Changes (`kg_track_changes`)
-*(Automatic if Agent is configured)*
-When files are modified, the system links the code changes to the active goals, updating the Knowledge Graph with the implementation details.
-
----
-
-## 📜 License
-
-This project is licensed under the **Apache License 2.0**.
-See the [LICENSE](LICENSE) file for details.
+```bash
+make help          # Show all available commands
+make package       # Build the standalone macOS DMG installer (Zero Docker required)
+make verify-clean  # Verify the standalone app in a clean, isolated MacBook simulation
+make test-massive  # Run the full 5-stage massive stress, scale, chaos & UI test suite
+make test          # Run Python unit & chaos tests (74 tests)
+make e2e           # Run end-to-end API integration tests (9 tests)
+make doctor        # Verify Docker, API, and Neo4j health
+make lint          # Run ruff linter
+```
 
 ---
 
-<div align="center">
-Made with ❤️ for the Future of Coding
-</div>
+## 📄 License
+
+MIT License. See [LICENSE](LICENSE) for details.
