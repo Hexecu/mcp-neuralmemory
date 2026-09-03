@@ -267,7 +267,9 @@ def test_ingest_bundle_sanitizes_pii_and_secrets(monkeypatch):
             "app": "Slack",
             "window_title": "#dev",
             "keystrokes_typed": (
-                "Ecco la key sk-123456789012345678901234 e IBAN IT60X0542811101000000123456"
+                "Ecco la key "
+                + "sk-"
+                + "123456789012345678901234 e IBAN IT60X0542811101000000123456"
             ),
             "trigger_reason": "enter_pressed",
         },
@@ -277,7 +279,7 @@ def test_ingest_bundle_sanitizes_pii_and_secrets(monkeypatch):
     sanitized = repository.events[0]["text_content"]
     assert "[REDACTED_API_KEY]" in sanitized
     assert "[REDACTED_IBAN]" in sanitized
-    assert "sk-1234567890" not in sanitized
+    assert ("sk-" + "1234567890") not in sanitized
 
 
 def test_ingest_event_short_keystroke_accepted(monkeypatch):

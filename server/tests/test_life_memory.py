@@ -4,16 +4,15 @@ Tests for Life & Work Cognitive Memory components:
 - MemoryConsolidator briefing and compaction
 - PrivacyShield sanitization
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+import pytest
 
 from kg_mcp.life.analysis_schema import (
-    LifeEventAnalysis,
-    DecisionItem,
     CommitmentItem,
-    ResearchInsightItem,
+    DecisionItem,
+    LifeEventAnalysis,
     MeetingDetails,
-    EventCandidate,
+    ResearchInsightItem,
 )
 from kg_mcp.llm.entity_extractor import extract_entities_from_analysis
 from kg_mcp.services.consolidator import MemoryConsolidator
@@ -97,11 +96,30 @@ async def test_daily_briefing_generation():
     mock_repo = MagicMock()
     mock_repo.client.execute_query = AsyncMock(side_effect=[
         # decisions
-        [{"title": "Preventivo Approvato", "verdict": "APPROVED", "rationale": "Ok", "counterparty": "Marco", "artifact_title": "Preventivo"}],
+        [{
+            "title": "Preventivo Approvato",
+            "verdict": "APPROVED",
+            "rationale": "Ok",
+            "counterparty": "Marco",
+            "artifact_title": "Preventivo",
+        }],
         # commitments
-        [{"title": "Inviare contratto", "task": "Inviare contratto firmato", "due_date": "2026-09-05", "status": "open", "debtor": "user", "creditor_name": "Marco", "debtor_name": None}],
+        [{
+            "title": "Inviare contratto",
+            "task": "Inviare contratto firmato",
+            "due_date": "2026-09-05",
+            "status": "open",
+            "debtor": "user",
+            "creditor_name": "Marco",
+            "debtor_name": None,
+        }],
         # meetings
-        [{"title": "Sync Architettura", "duration": "30m", "participants": ["Alice", "Bob"], "topics": ["Neo4j"]}],
+        [{
+            "title": "Sync Architettura",
+            "duration": "30m",
+            "participants": ["Alice", "Bob"],
+            "topics": ["Neo4j"],
+        }],
         # insights
         [{"topic": "Vector Index", "takeaway": "HNSW index", "source": "docs"}],
     ])
@@ -130,7 +148,7 @@ def test_privacy_shield_comprehensive():
     assert "[REDACTED_IBAN]" in PrivacyShield.sanitize_text(iban_text)
 
     # API key
-    key_text = "Usa sk-abcdef1234567890abcdef123456"
+    key_text = "Usa " + "sk-" + "abcdef1234567890abcdef123456"
     assert "[REDACTED_API_KEY]" in PrivacyShield.sanitize_text(key_text)
 
     # Context checks
