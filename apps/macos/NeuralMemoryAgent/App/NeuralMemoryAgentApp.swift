@@ -181,7 +181,11 @@ struct PremiumDashboardView: View {
                     }
 
                     ActionButton(title: "Settings", icon: "gear", isPrimary: false) {
-                        PermissionManager.shared.showOnboardingWindow()
+                        if let appDelegate = NSApp.delegate as? AppDelegate {
+                            Task { @MainActor in
+                                appDelegate.showSettingsWindow()
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)

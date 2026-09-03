@@ -407,7 +407,11 @@ def create_api_app(
         return "<h1>Graph Visualizer not found</h1>"
 
     @app.get("/api/graph/data")
-    async def get_graph_data(project_id: str = "default") -> dict[str, Any]:
+    async def get_graph_data(
+        project_id: str = "default",
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> dict[str, Any]:
         repository = get_repository()
         query = """
         MATCH (n)
@@ -417,38 +421,57 @@ def create_api_app(
         OPTIONAL MATCH (n)-[r]->(m)
         WHERE m:Decision OR m:Commitment OR m:Meeting OR m:Reflection
            OR m:Insight OR m:Person OR m:Topic OR m:Artifact
-        RETURN n, type(r) as rel_type, m
+        RETURN n, type(r) as rel_type, r, m
         """
         try:
             records = await repository.client.execute_query(query)
             nodes_map = {}
             links = []
             for row in records:
+                for target_node in (row["n"], row["m"]):
+                    if target_node and target_node.element_id not in nodes_map:
+                        props = dict(target_node)
+                        labels = list(target_node.labels)
+                        serialized_props = serialize_response(props)
+                        ts = (
+                            serialized_props.get("timestamp")
+                            or serialized_props.get("created_at")
+                            or serialized_props.get("last_seen_at")
+                            or serialized_props.get("dream_cycle_at")
+                        )
+                        nodes_map[target_node.element_id] = {
+                            "id": target_node.element_id,
+                            "labels": labels,
+                            "timestamp_iso": ts,
+                            **serialized_props,
+                        }
                 n = row["n"]
-                if n and n.element_id not in nodes_map:
-                    props = dict(n)
-                    labels = list(n.labels)
-                    nodes_map[n.element_id] = {
-                        "id": n.element_id,
-                        "labels": labels,
-                        **serialize_response(props),
-                    }
                 m = row["m"]
-                if m and m.element_id not in nodes_map:
-                    props = dict(m)
-                    labels = list(m.labels)
-                    nodes_map[m.element_id] = {
-                        "id": m.element_id,
-                        "labels": labels,
-                        **serialize_response(props),
-                    }
                 if row["rel_type"] and n and m:
+                    rel = row.get("r")
+                    rel_props = serialize_response(dict(rel)) if rel else {}
                     links.append({
                         "source": n.element_id,
                         "target": m.element_id,
                         "type": row["rel_type"],
+                        **rel_props,
                     })
-            return {"nodes": list(nodes_map.values()), "links": links}
+
+            nodes_list = list(nodes_map.values())
+            if since is not None:
+                since_iso = since.isoformat()
+                nodes_list = [n for n in nodes_list if (n.get("timestamp_iso") or "") >= since_iso]
+            if until is not None:
+                until_iso = until.isoformat()
+                nodes_list = [n for n in nodes_list if (n.get("timestamp_iso") or "") <= until_iso]
+
+            active_ids = {n["id"] for n in nodes_list}
+            filtered_links = [
+                link_item
+                for link_item in links
+                if link_item["source"] in active_ids and link_item["target"] in active_ids
+            ]
+            return {"nodes": nodes_list, "links": filtered_links}
         except Exception as e:
             logger.exception("get_graph_data failed: %s", e)
             return {"nodes": [], "links": []}

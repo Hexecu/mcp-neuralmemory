@@ -13,6 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             if CommandLine.arguments.contains("--graph") {
                 self.showGraphWindow()
+            } else if CommandLine.arguments.contains("--settings") {
+                self.showSettingsWindow()
             } else {
                 self.showDashboardWindow()
             }
@@ -84,6 +86,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             graphWindow = window
         }
         graphWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var settingsWindow: NSWindow?
+
+    @MainActor
+    func showSettingsWindow() {
+        if settingsWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 580, height: 500),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "Settings & Management"
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
+            window.contentView = NSHostingView(
+                rootView: SettingsView().environmentObject(AppState.shared)
+            )
+            settingsWindow = window
+        }
+        settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

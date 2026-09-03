@@ -69,4 +69,32 @@ final class APIClientContractTests: XCTestCase {
         engine.step()
         XCTAssertGreaterThan(engine.alpha, 0.0)
     }
+
+    @MainActor
+    func testTemporalGraphFeatures() {
+        let now = Date()
+        let past = now.addingTimeInterval(-86400 * 3) // 3 days ago
+
+        let nodeRecent = GraphNode(id: "rec", labels: ["Decision"], title: "Recent Decision", timestamp: now)
+        let nodeOld = GraphNode(id: "old", labels: ["Topic"], name: "Old Topic", timestamp: past)
+
+        XCTAssertGreaterThan(nodeRecent.recencyScore(now: now), 0.9)
+        XCTAssertLessThan(nodeOld.recencyScore(now: now), nodeRecent.recencyScore(now: now))
+
+        let engine = GraphPhysicsEngine()
+        engine.setGraph(nodes: [nodeRecent, nodeOld], links: [], in: CGSize(width: 800, height: 600))
+
+        // Test layout mode switching
+        engine.setLayoutMode(.timeline)
+        XCTAssertEqual(engine.layoutMode, .timeline)
+        engine.step()
+
+        // Test time filtering
+        let activeAll = engine.getActiveNodes(timeRange: .all, scrubDate: nil)
+        XCTAssertEqual(activeAll.count, 2)
+
+        let activeToday = engine.getActiveNodes(timeRange: .today, scrubDate: nil)
+        XCTAssertEqual(activeToday.count, 1)
+        XCTAssertEqual(activeToday.first?.id, "rec")
+    }
 }

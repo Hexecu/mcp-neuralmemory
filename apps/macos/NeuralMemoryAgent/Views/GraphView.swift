@@ -1,5 +1,5 @@
 // GraphView.swift
-// Native SwiftUI interactive Knowledge Graph Visualizer with physics & cognitive inspector
+// Native SwiftUI Temporal Knowledge Graph Visualizer with timeline stream, multi-hub clusters & cognitive inspector
 
 import SwiftUI
 
@@ -7,14 +7,18 @@ struct GraphView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var engine = GraphPhysicsEngine()
 
-    // View state
+    // Selection & Hit Testing
     @State private var selectedNode: GraphNode?
-    @State private var hoveredNode: GraphNode?
     @State private var draggedNodeId: String?
 
     // Filter & Search
     @State private var currentFilter: SemanticNodeType? = nil
     @State private var searchQuery: String = ""
+
+    // Temporal Scrubbing
+    @State private var isPlayingTime: Bool = false
+    @State private var scrubProgress: Double = 1.0 // 0.0 to 1.0
+    @State private var timeTimer: Timer? = nil
 
     // Navigation transform
     @State private var zoomScale: CGFloat = 1.0
@@ -28,7 +32,7 @@ struct GraphView: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
-                // Background theme matching app
+                // Cosmic dark-glass background
                 backgroundView
 
                 // Main Force Graph Canvas with 60fps simulation
@@ -48,7 +52,7 @@ struct GraphView: View {
                     )
                 }
 
-                // Top Floating Controls: Filters, Search, Actions
+                // Top Floating Toolbar: Brand, Layout Modes, Search, Settings
                 VStack {
                     topToolbar
                         .padding(.top, 16)
@@ -60,7 +64,8 @@ struct GraphView: View {
 
                     Spacer()
 
-                    bottomStatusBar
+                    // Bottom Temporal Scrubber & Controls
+                    temporalScrubberBar
                         .padding(.bottom, 16)
                         .padding(.horizontal, 20)
                 }
@@ -91,7 +96,7 @@ struct GraphView: View {
                 loadGraph(in: geometry.size)
             }
         }
-        .frame(minWidth: 900, minHeight: 650)
+        .frame(minWidth: 960, minHeight: 680)
     }
 
     // MARK: - Background
@@ -110,7 +115,6 @@ struct GraphView: View {
             )
             .ignoresSafeArea()
 
-            // Subtle glowing background orbs
             Circle()
                 .fill(RadialGradient(colors: [Color.purple.opacity(0.18), .clear], center: .center, startRadius: 0, endRadius: 260))
                 .frame(width: 520, height: 520)
@@ -128,13 +132,18 @@ struct GraphView: View {
     // MARK: - Canvas Drawing
 
     private func drawGraph(context: GraphicsContext, size: CGSize) {
-        let activeNodes = getFilteredNodes()
+        let activeNodes = getActiveAndFilteredNodes()
         let activeIds = Set(activeNodes.map { $0.id })
 
         let selectedId = selectedNode?.id
         let neighborIds = selectedId != nil ? Set(engine.getNeighbors(for: selectedId!).map { $0.id }) : Set<String>()
 
-        // 1. Draw Links
+        // 1. Draw Timeline Lanes (if Timeline mode)
+        if engine.layoutMode == .timeline {
+            drawTimelineLanes(context: context, size: size)
+        }
+
+        // 2. Draw Links
         for link in engine.links {
             guard activeIds.contains(link.sourceId), activeIds.contains(link.targetId) else { continue }
             guard let srcNode = engine.nodes.first(where: { $0.id == link.sourceId }),
@@ -151,7 +160,7 @@ struct GraphView: View {
                     isHighlighted = true
                     opacity = 0.85
                 } else {
-                    opacity = 0.05
+                    opacity = 0.04
                 }
             }
 
@@ -167,7 +176,7 @@ struct GraphView: View {
             )
         }
 
-        // 2. Draw Nodes
+        // 3. Draw Nodes with Temporal Glow
         for node in activeNodes {
             let screenPos = toScreenCoords(node.position)
             let r = node.semanticType.baseRadius * zoomScale
@@ -175,18 +184,19 @@ struct GraphView: View {
             let isSelected = node.id == selectedId
             let isNeighbor = neighborIds.contains(node.id)
             let isSearchMatch = isMatch(node)
+            let recency = node.recencyScore()
 
-            var nodeOpacity: Double = 1.0
+            var nodeOpacity: Double = max(0.4, recency)
             if selectedId != nil && !isSelected && !isNeighbor {
-                nodeOpacity = 0.2
+                nodeOpacity = 0.15
             }
             if !searchQuery.isEmpty && !isSearchMatch {
-                nodeOpacity = min(nodeOpacity, 0.15)
+                nodeOpacity = min(nodeOpacity, 0.12)
             }
 
-            // Glow Aura for Selected or Dream nodes
-            if isSelected || node.semanticType == .reflection {
-                let auraRadius = r + (isSelected ? 14 : 8) * zoomScale
+            // Glow Aura for Selected, Reflection, or High Recency
+            if isSelected || node.semanticType == .reflection || recency > 0.8 {
+                let auraRadius = r + (isSelected ? 14 : 6) * zoomScale
                 let auraPath = Path(ellipseIn: CGRect(x: screenPos.x - auraRadius, y: screenPos.y - auraRadius, width: auraRadius * 2, height: auraRadius * 2))
                 context.fill(auraPath, with: .color(node.semanticType.color.opacity(0.35 * nodeOpacity)))
             }
@@ -212,6 +222,29 @@ struct GraphView: View {
         }
     }
 
+    private func drawTimelineLanes(context: GraphicsContext, size: CGSize) {
+        let lanes: [(title: String, y: CGFloat, color: Color)] = [
+            ("DREAM REFLECTIONS", 130, Color(red: 0.93, green: 0.28, blue: 0.60)),
+            ("DECISIONS", 240, Color(red: 0.06, green: 0.73, blue: 0.51)),
+            ("MEETINGS", 350, Color(red: 0.23, green: 0.51, blue: 0.96)),
+            ("COMMITMENTS", 460, Color(red: 0.96, green: 0.62, blue: 0.04)),
+            ("TOPICS & COLLABORATORS", 570, Color(red: 0.66, green: 0.33, blue: 0.97))
+        ]
+
+        for lane in lanes {
+            let screenY = lane.y * zoomScale + panOffset.y
+            var linePath = Path()
+            linePath.move(to: CGPoint(x: 20, y: screenY))
+            linePath.addLine(to: CGPoint(x: size.width - 20, y: screenY))
+            context.stroke(linePath, with: .color(Color.white.opacity(0.06)), lineWidth: 1)
+
+            let label = Text(lane.title)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundColor(lane.color.opacity(0.45))
+            context.draw(label, at: CGPoint(x: 100, y: screenY - 10))
+        }
+    }
+
     private func toScreenCoords(_ point: CGPoint) -> CGPoint {
         CGPoint(
             x: point.x * zoomScale + panOffset.x,
@@ -233,7 +266,6 @@ struct GraphView: View {
             let canvasPos = toCanvasCoords(value.location)
             engine.dragNode(id: dragId, to: canvasPos)
         } else if value.translation.width == 0 && value.translation.height == 0 {
-            // Initial press: check if hitting a node
             if let hit = engine.findNode(at: value.startLocation, zoom: zoomScale, offset: panOffset) {
                 draggedNodeId = hit.id
                 selectedNode = hit
@@ -241,7 +273,6 @@ struct GraphView: View {
                 engine.dragNode(id: hit.id, to: canvasPos)
             }
         } else {
-            // Panning the canvas
             panOffset.x += value.translation.width - lastDragOffset.x
             panOffset.y += value.translation.height - lastDragOffset.y
             lastDragOffset = CGPoint(x: value.translation.width, y: value.translation.height)
@@ -253,7 +284,6 @@ struct GraphView: View {
             engine.releaseNode(id: dragId)
             draggedNodeId = nil
         } else if abs(value.translation.width) < 4 && abs(value.translation.height) < 4 {
-            // Tap detected
             if let hit = engine.findNode(at: value.startLocation, zoom: zoomScale, offset: panOffset) {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                     selectedNode = hit
@@ -269,11 +299,22 @@ struct GraphView: View {
 
     // MARK: - Filter & Search Helpers
 
-    private func getFilteredNodes() -> [GraphNode] {
+    private func getActiveAndFilteredNodes() -> [GraphNode] {
+        let scrubDate = computeScrubDate()
+        var nodes = engine.getActiveNodes(timeRange: engine.timeFilter, scrubDate: scrubDate)
+
         if let filter = currentFilter {
-            return engine.nodes.filter { $0.semanticType == filter }
+            nodes = nodes.filter { $0.semanticType == filter }
         }
-        return engine.nodes
+        return nodes
+    }
+
+    private func computeScrubDate() -> Date? {
+        guard scrubProgress < 0.99 else { return nil }
+        let dates = engine.nodes.compactMap { $0.timestamp }
+        guard let minDate = dates.min(), let maxDate = dates.max(), minDate < maxDate else { return nil }
+        let span = maxDate.timeIntervalSince(minDate)
+        return minDate.addingTimeInterval(span * scrubProgress)
     }
 
     private func isMatch(_ node: GraphNode) -> Bool {
@@ -313,16 +354,46 @@ struct GraphView: View {
                     )
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Memory Knowledge Graph")
+                    Text("Temporal Knowledge Graph")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
-                    Text("Cognitive semantic relationships")
+                    Text("Multi-hub cognitive architecture")
                         .font(.system(size: 11))
                         .foregroundColor(.white.opacity(0.5))
                 }
             }
 
             Spacer()
+
+            // Layout Mode Switcher (Cluster / Timeline / Force)
+            HStack(spacing: 2) {
+                ForEach(GraphLayoutMode.allCases) { mode in
+                    Button {
+                        engine.setLayoutMode(mode)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: mode.iconName)
+                                .font(.system(size: 11))
+                            Text(mode.displayName)
+                                .font(.system(size: 11, weight: engine.layoutMode == mode ? .bold : .medium))
+                        }
+                        .foregroundColor(engine.layoutMode == mode ? .white : .white.opacity(0.6))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(engine.layoutMode == mode ? Color.purple.opacity(0.4) : Color.clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.white.opacity(0.06))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.1), lineWidth: 1))
+            )
 
             // Search box
             HStack(spacing: 8) {
@@ -348,14 +419,14 @@ struct GraphView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .frame(width: 280)
+            .frame(width: 220)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.white.opacity(0.08))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.12), lineWidth: 1))
             )
 
-            // Zoom Controls
+            // Zoom & View Controls
             HStack(spacing: 4) {
                 IconButton(icon: "minus.magnifyingglass") {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -376,16 +447,20 @@ struct GraphView: View {
                 }
             }
 
-            // Refresh from backend
-            IconButton(icon: isLoading ? "arrow.triangle.2.circlepath" : "arrow.clockwise") {
-                loadGraph(in: CGSize(width: 1000, height: 700))
+            // Settings Window Button (Opens unified configuration)
+            IconButton(icon: "gear") {
+                if let appDelegate = NSApp.delegate as? AppDelegate {
+                    Task { @MainActor in
+                        appDelegate.showSettingsWindow()
+                    }
+                }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(red: 0.08, green: 0.09, blue: 0.18).opacity(0.85))
+                .fill(Color(red: 0.08, green: 0.09, blue: 0.18).opacity(0.88))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.12), lineWidth: 1))
         )
     }
@@ -421,35 +496,115 @@ struct GraphView: View {
         }
     }
 
-    // MARK: - Bottom Status Bar
+    // MARK: - Bottom Temporal Scrubber Bar
 
-    private var bottomStatusBar: some View {
+    private var temporalScrubberBar: some View {
         HStack(spacing: 16) {
-            Label("\(engine.nodes.count) Nodes", systemImage: "circle.hexagongrid.fill")
-            Label("\(engine.links.count) Relations", systemImage: "point.3.filled.connected.trianglepath.dotted")
-
-            if engine.isSimulating {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                    Text("Physics Active")
+            // Time Range Presets
+            HStack(spacing: 4) {
+                ForEach(TimeFilterRange.allCases) { range in
+                    Button {
+                        engine.timeFilter = range
+                        scrubProgress = 1.0
+                    } label: {
+                        Text(range.rawValue)
+                            .font(.system(size: 10, weight: engine.timeFilter == range ? .bold : .medium))
+                            .foregroundColor(engine.timeFilter == range ? .white : .white.opacity(0.6))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(engine.timeFilter == range ? Color.purple.opacity(0.4) : Color.clear)
+                            )
+                    }
+                    .buttonStyle(.plain)
                 }
+            }
+            .padding(3)
+            .background(Capsule().fill(Color.white.opacity(0.06)))
+
+            Divider()
+                .frame(height: 18)
+                .background(Color.white.opacity(0.15))
+
+            // Play/Pause button for time-travel replay
+            Button {
+                toggleTimePlay()
+            } label: {
+                Image(systemName: isPlayingTime ? "pause.fill" : "play.fill")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.purple.opacity(0.5)))
+            }
+            .buttonStyle(.plain)
+
+            // Continuous Time Slider
+            HStack(spacing: 8) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.5))
+
+                Slider(value: $scrubProgress, in: 0.05...1.0)
+                    .tint(Color.purple)
+
+                Text(scrubDateLabel)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .frame(width: 140, alignment: .leading)
             }
 
             Spacer()
 
-            Text("Scroll or drag canvas to navigate • Click nodes for details")
-                .foregroundColor(.white.opacity(0.4))
+            // Active count indicator
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color.green)
+                    .frame(width: 6, height: 6)
+                Text("\(getActiveAndFilteredNodes().count)/\(engine.nodes.count) Nodes")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+            }
         }
-        .font(.system(size: 11, weight: .medium))
-        .foregroundColor(.white.opacity(0.6))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(red: 0.08, green: 0.09, blue: 0.18).opacity(0.8))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(red: 0.08, green: 0.09, blue: 0.18).opacity(0.9))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
         )
+    }
+
+    private var scrubDateLabel: String {
+        if scrubProgress >= 0.99 {
+            return "Now (Latest)"
+        }
+        if let d = computeScrubDate() {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "dd/MM HH:mm"
+            return formatter.string(from: d)
+        }
+        return "Time Horizon"
+    }
+
+    private func toggleTimePlay() {
+        if isPlayingTime {
+            isPlayingTime = false
+            timeTimer?.invalidate()
+            timeTimer = nil
+        } else {
+            if scrubProgress >= 0.98 { scrubProgress = 0.05 }
+            isPlayingTime = true
+            timeTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { _ in
+                if scrubProgress < 1.0 {
+                    scrubProgress += 0.02
+                } else {
+                    isPlayingTime = false
+                    timeTimer?.invalidate()
+                    timeTimer = nil
+                }
+            }
+        }
     }
 
     // MARK: - Load Graph Data
@@ -583,6 +738,21 @@ struct CognitiveInspectorView: View {
                     // Cognitive Section (Semantic specific)
                     cognitiveSection
 
+                    // Temporal Timestamp Banner
+                    if let ts = node.timestamp {
+                        HStack(spacing: 8) {
+                            Image(systemName: "calendar.badge.clock")
+                                .font(.system(size: 12))
+                                .foregroundColor(.purple)
+                            Text("Observed: \(formattedDate(ts))")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color.purple.opacity(0.12)))
+                    }
+
                     // Connected Neighbors
                     if !neighbors.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
@@ -650,6 +820,12 @@ struct CognitiveInspectorView: View {
                 .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.white.opacity(0.15), lineWidth: 1))
                 .shadow(color: .black.opacity(0.5), radius: 30, x: 0, y: 10)
         )
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "dd/MM/yyyy HH:mm"
+        return formatter.string(from: date)
     }
 
     @ViewBuilder
@@ -748,7 +924,6 @@ struct InfoBlock: View {
     }
 }
 
-// Simple Flow Layout for tags
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 

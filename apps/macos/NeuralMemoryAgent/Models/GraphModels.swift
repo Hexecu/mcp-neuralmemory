@@ -3,6 +3,54 @@
 
 import SwiftUI
 
+// MARK: - Graph Layout Modes
+
+enum GraphLayoutMode: String, CaseIterable, Identifiable {
+    case cluster = "Cluster"
+    case timeline = "Timeline"
+    case force = "Force"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .cluster: return "Topic Clusters"
+        case .timeline: return "Timeline Stream"
+        case .force: return "Free Force"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .cluster: return "circle.hexagongrid.fill"
+        case .timeline: return "chart.line.uptrend.xyaxis"
+        case .force: return "atom"
+        }
+    }
+}
+
+// MARK: - Time Filter Range
+
+enum TimeFilterRange: String, CaseIterable, Identifiable {
+    case all = "All Time"
+    case last30Days = "30 Days"
+    case last7Days = "7 Days"
+    case last3Days = "3 Days"
+    case today = "Today"
+
+    var id: String { rawValue }
+
+    var days: Double? {
+        switch self {
+        case .all: return nil
+        case .last30Days: return 30.0
+        case .last7Days: return 7.0
+        case .last3Days: return 3.0
+        case .today: return 1.0
+        }
+    }
+}
+
 // MARK: - Semantic Node Type
 
 enum SemanticNodeType: String, CaseIterable, Identifiable {
@@ -99,6 +147,7 @@ struct GraphNode: Identifiable, Hashable {
     let takeaway: String?
     let sourceUrl: String?
     let projectId: String?
+    let timestamp: Date?
     let rawAttributes: [String: String]
 
     // Simulation Physics State
@@ -106,8 +155,65 @@ struct GraphNode: Identifiable, Hashable {
     var velocity: CGPoint = .zero
     var isFixed: Bool = false
 
+    init(
+        id: String,
+        labels: [String],
+        name: String? = nil,
+        title: String? = nil,
+        verdict: String? = nil,
+        rationale: String? = nil,
+        task: String? = nil,
+        dueDate: String? = nil,
+        synthesis: String? = nil,
+        actionableSuggestion: String? = nil,
+        takeaway: String? = nil,
+        sourceUrl: String? = nil,
+        projectId: String? = nil,
+        timestamp: Date? = nil,
+        rawAttributes: [String: String] = [:],
+        position: CGPoint = .zero,
+        velocity: CGPoint = .zero,
+        isFixed: Bool = false
+    ) {
+        self.id = id
+        self.labels = labels
+        self.name = name
+        self.title = title
+        self.verdict = verdict
+        self.rationale = rationale
+        self.task = task
+        self.dueDate = dueDate
+        self.synthesis = synthesis
+        self.actionableSuggestion = actionableSuggestion
+        self.takeaway = takeaway
+        self.sourceUrl = sourceUrl
+        self.projectId = projectId
+        self.timestamp = timestamp
+        self.rawAttributes = rawAttributes
+        self.position = position
+        self.velocity = velocity
+        self.isFixed = isFixed
+    }
+
     var semanticType: SemanticNodeType {
         SemanticNodeType.from(labels: labels)
+    }
+
+    var timelineLaneY: CGFloat {
+        switch semanticType {
+        case .reflection: return 130
+        case .decision: return 240
+        case .meeting: return 350
+        case .commitment: return 460
+        case .person, .topic: return 570
+        case .artifact, .insight, .other: return 670
+        }
+    }
+
+    func recencyScore(now: Date = Date(), halflifeHours: Double = 72.0) -> Double {
+        guard let ts = timestamp else { return 0.5 }
+        let hours = max(0, now.timeIntervalSince(ts) / 3600.0)
+        return exp(-hours * 0.693147 / max(1.0, halflifeHours))
     }
 
     var displayTitle: String {
@@ -204,12 +310,31 @@ struct GraphNodeDTO: Decodable {
     let takeaway: String?
     let source_url_or_doc: String?
     let project_id: String?
+    let timestamp_iso: String?
+    let created_at: String?
+    let timestamp: String?
 
     func toGraphNode() -> GraphNode {
         var raw: [String: String] = [:]
         if let p = project_id { raw["Project ID"] = p }
         if let l = labels { raw["Labels"] = l.joined(separator: ", ") }
         raw["Element ID"] = id
+
+        let dateString = timestamp_iso ?? created_at ?? timestamp ?? due_date_iso ?? due_date
+        let date: Date? = {
+            guard let str = dateString else { return nil }
+            let iso = ISO8601DateFormatter()
+            iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let d = iso.date(from: str) { return d }
+            iso.formatOptions = [.withInternetDateTime]
+            return iso.date(from: str)
+        }()
+
+        if let d = date {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "dd/MM/yyyy HH:mm"
+            raw["Observed At"] = formatter.string(from: d)
+        }
 
         return GraphNode(
             id: id,
@@ -225,6 +350,7 @@ struct GraphNodeDTO: Decodable {
             takeaway: takeaway,
             sourceUrl: source_url_or_doc,
             projectId: project_id,
+            timestamp: date,
             rawAttributes: raw
         )
     }

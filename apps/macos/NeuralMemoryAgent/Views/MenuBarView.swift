@@ -102,6 +102,18 @@ struct MenuBarView: View {
                 .buttonStyle(MenuItemButtonStyle())
 
                 Button {
+                    openSettings()
+                } label: {
+                    HStack {
+                        Image(systemName: "gearshape")
+                            .frame(width: 20)
+                        Text("Settings & Preferences...")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(MenuItemButtonStyle())
+
+                Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
                     HStack {
@@ -138,6 +150,14 @@ struct MenuBarView: View {
         if let appDelegate = NSApp.delegate as? AppDelegate {
             Task { @MainActor in
                 appDelegate.showGraphWindow()
+            }
+        }
+    }
+
+    private func openSettings() {
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            Task { @MainActor in
+                appDelegate.showSettingsWindow()
             }
         }
     }
