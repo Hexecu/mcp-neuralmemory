@@ -1,0 +1,22 @@
+# Build outputs
+.build/
+*.app/
+AppIcon.iconset/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# IDE
+.idea/
+.vscode/
+
+# Misc
+*.icns

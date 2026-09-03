@@ -1,7 +1,7 @@
 """
 MCP Tool definitions for the Knowledge Graph Memory Server.
 
-This module exposes ONLY 2 tools to AI agents:
+This module exposes two project-memory tools to AI agents:
 - kg_autopilot: Call at the START of every task
 - kg_track_changes: Call AFTER every file modification
 
@@ -16,7 +16,9 @@ from mcp.server.fastmcp import FastMCP
 from kg_mcp.kg.ingest import get_ingest_pipeline
 from kg_mcp.kg.retrieval import get_context_builder
 from kg_mcp.kg.repo import get_repository
+from kg_mcp.kg.repo import get_repository
 from kg_mcp.utils import serialize_response
+from kg_mcp.mcp.life_tools import register_life_tools
 
 logger = logging.getLogger(__name__)
 
@@ -208,15 +210,15 @@ async def _impact_analysis(
 
 
 # =============================================================================
-# MCP TOOL REGISTRATION (Only 2 tools exposed)
+# MCP TOOL REGISTRATION
 # =============================================================================
 
 
 def register_tools(mcp: FastMCP) -> None:
     """
     Register MCP tools with the server.
-    
-    Only 2 tools are exposed:
+
+    Two core project-memory tools are exposed here:
     - kg_autopilot: For starting tasks
     - kg_track_changes: For tracking file modifications
     """
@@ -534,4 +536,8 @@ def register_tools(mcp: FastMCP) -> None:
             result["error"] = str(e)
             return result
 
-    logger.info("MCP tools registered: kg_autopilot, kg_track_changes (2 tools only)")
+    logger.info("Registered project-memory MCP tools")
+
+    # Register Mac Life Memory tools
+    register_life_tools(mcp)
+    logger.info("Registered Mac Life Memory tools")

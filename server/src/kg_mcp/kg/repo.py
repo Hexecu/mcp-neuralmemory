@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from kg_mcp.kg.neo4j import get_neo4j_client
+from kg_mcp.kg.client import get_neo4j_client
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class KGRepository:
         """Get or create a project node."""
         query = """
         MERGE (p:Project {id: $project_id})
-        ON CREATE SET 
+        ON CREATE SET
             p.name = $name,
             p.created_at = datetime(),
             p.updated_at = datetime()
@@ -44,6 +44,7 @@ class KGRepository:
     # =========================================================================
     # Interaction Operations
     # =========================================================================
+
 
     async def create_interaction(
         self,
@@ -79,6 +80,7 @@ class KGRepository:
             },
         )
         return result[0]["interaction"] if result else {"id": interaction_id}
+
 
     async def get_recent_interactions(
         self, project_id: str, limit: int = 10
@@ -148,7 +150,7 @@ class KGRepository:
         OPTIONAL MATCH (g)-[:HAS_CONSTRAINT]->(c:Constraint)
         OPTIONAL MATCH (g)-[:HAS_STRATEGY]->(s:Strategy)
         OPTIONAL MATCH (g)-[:HAS_ACCEPTANCE_CRITERIA]->(ac:AcceptanceCriteria)
-        WITH g, 
+        WITH g,
              collect(DISTINCT c {.*}) as constraints,
              collect(DISTINCT s {.*}) as strategies,
              collect(DISTINCT ac {.*}) as acceptance_criteria
@@ -357,12 +359,12 @@ class KGRepository:
             .*,
             blocking_goals: blocking_goals
         } as painpoint
-        ORDER BY 
-            CASE severity 
-                WHEN 'critical' THEN 1 
-                WHEN 'high' THEN 2 
-                WHEN 'medium' THEN 3 
-                ELSE 4 
+        ORDER BY
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                ELSE 4
             END
         """
         result = await self.client.execute_query(query, {"project_id": project_id})
@@ -428,6 +430,660 @@ class KGRepository:
             )
 
         return strategy
+
+    # =========================================================================
+    # Mac Life Memory Operations
+    # =========================================================================
+
+    async def upsert_raw_event(
+        self,
+        project_id: str,
+        event_type: str,
+        timestamp: datetime,
+        data: Dict[str, Any],
+        text_content: Optional[str] = None,
+        artifact_ids: Optional[List[str]] = None,
+        normalized_event_type: Optional[str] = None,
+        screenshot_hash: Optional[str] = None,
+        artifact_canonical_id: Optional[str] = None,
+        app: Optional[str] = None,
+        window_title: Optional[str] = None,
+        url_or_path: Optional[str] = None,
+        is_duplicate: Optional[bool] = None,
+        duplicate_of: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert a raw event node."""
+        event_id = str(uuid4())
+        # Ensure timestamp is ISO formatted string for Neo4j if passing as string,
+        # but the driver handles datetime objects well in parameters usually.
+        # However, for consistency we might want to ensure it is passed correctly.
+
+        query = """
+        MERGE (p:Project {id: $project_id})
+        ON CREATE SET p.name = $project_id, p.created_at = datetime()
+        CREATE (re:RawEvent {
+            id: $event_id,
+            type: $event_type,
+            normalized_type: $normalized_event_type,
+            timestamp: $timestamp,
+            data: $data_json,
+            text_content: $text_content,
+            project_id: $project_id,
+            app: $app,
+            window_title: $window_title,
+            url_or_path: $url_or_path,
+            artifact_canonical_id: $artifact_canonical_id,
+            screenshot_hash: $screenshot_hash,
+            is_duplicate: $is_duplicate,
+            duplicate_of: $duplicate_of,
+            created_at: datetime()
+        })
+        MERGE (re)-[:IN_PROJECT]->(p)
+        RETURN re {.*} as event
+        """
+
+        # Serialize data to JSON string for storage if it's a dict
+        import json
+        data_json = json.dumps(data)
+
+        # Best-effort extraction of common fields from data
+        if isinstance(data, dict):
+            if app is None:
+                app = data.get("app")
+            if window_title is None:
+                window_title = data.get("window") or data.get("window_title")
+            if url_or_path is None:
+                url_or_path = data.get("url") or data.get("url_or_path") or data.get("path")
+            if artifact_canonical_id is None:
+                artifact_canonical_id = data.get("artifact_canonical_id")
+
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "event_id": event_id,
+                "event_type": event_type,
+                "normalized_event_type": normalized_event_type,
+                "timestamp": timestamp,
+                "data_json": data_json,
+                "text_content": text_content,
+                "app": app,
+                "window_title": window_title,
+                "url_or_path": url_or_path,
+                "artifact_canonical_id": artifact_canonical_id,
+                "screenshot_hash": screenshot_hash,
+                "is_duplicate": is_duplicate,
+                "duplicate_of": duplicate_of,
+            },
+        )
+        event = result[0]["event"] if result else {"id": event_id}
+
+        # Link artifacts
+        if artifact_ids:
+            for art_id in artifact_ids:
+                await self.client.execute_query(
+                    """
+                    MATCH (re:RawEvent {id: $event_id})
+                    MATCH (ma:MediaArtifact {id: $art_id})
+                    MERGE (re)-[:HAS_ARTIFACT]->(ma)
+                    """,
+                    {"event_id": event["id"], "art_id": art_id},
+                )
+
+        return event
+
+    async def upsert_media_artifact(
+        self,
+        project_id: str,
+        uri: str,
+        kind: str,
+        content_hash: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert a media artifact (screenshot/audio)."""
+        artifact_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        MERGE (ma:MediaArtifact {uri: $uri})
+        ON CREATE SET
+            ma.id = $artifact_id,
+            ma.project_id = $project_id,
+            ma.kind = $kind,
+            ma.content_hash = $content_hash,
+            ma.created_at: datetime()
+        ON MATCH SET
+            ma.updated_at = datetime()
+        MERGE (ma)-[:IN_PROJECT]->(p)
+        RETURN ma {.*} as artifact
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "artifact_id": artifact_id,
+                "uri": uri,
+                "kind": kind,
+                "content_hash": content_hash,
+            }
+        )
+        return result[0]["artifact"] if result else {"id": artifact_id}
+
+    async def upsert_activity_slice(
+        self,
+        project_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        summary: Optional[str] = None,
+        event_ids: Optional[List[str]] = None,
+        apps: Optional[List[str]] = None,
+        artifact_ids: Optional[List[str]] = None,
+        concept_names: Optional[List[str]] = None,
+        event_types: Optional[List[str]] = None,
+        primary_app: Optional[str] = None,
+        primary_artifact_id: Optional[str] = None,
+        primary_concept: Optional[str] = None,
+        duplicate_count: int = 0,
+        confidence: float = 0.8,
+        segment_kind: str = "semantic",
+    ) -> Dict[str, Any]:
+        """Upsert an activity slice."""
+        slice_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        CREATE (as:ActivitySlice {
+            id: $slice_id,
+            start_time: $start_time,
+            end_time: $end_time,
+            summary: $summary,
+            project_id: $project_id,
+            apps: $apps,
+            concepts: $concepts,
+            artifact_ids: $artifact_ids,
+            event_types: $event_types,
+            primary_app: $primary_app,
+            primary_artifact_id: $primary_artifact_id,
+            primary_concept: $primary_concept,
+            duplicate_count: $duplicate_count,
+            confidence: $confidence,
+            segment_kind: $segment_kind,
+            created_at: datetime()
+        })
+        MERGE (as)-[:IN_PROJECT]->(p)
+        RETURN as {.*} as slice
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "slice_id": slice_id,
+                "start_time": start_time,
+                "end_time": end_time,
+                "summary": summary,
+                "apps": apps or [],
+                "concepts": concept_names or [],
+                "artifact_ids": artifact_ids or [],
+                "event_types": event_types or [],
+                "primary_app": primary_app,
+                "primary_artifact_id": primary_artifact_id,
+                "primary_concept": primary_concept,
+                "duplicate_count": duplicate_count,
+                "confidence": confidence,
+                "segment_kind": segment_kind,
+            }
+        )
+        slice_node = result[0]["slice"] if result else {"id": slice_id}
+
+        if event_ids:
+            # Link events to slice using IN_SLICE (Event -> Slice)
+             await self.client.execute_query(
+                """
+                MATCH (as:ActivitySlice {id: $slice_id})
+                MATCH (re:RawEvent) WHERE re.id IN $event_ids
+                MERGE (re)-[:IN_SLICE]->(as)
+                """,
+                {"slice_id": slice_node["id"], "event_ids": event_ids}
+            )
+
+        if apps:
+            await self.client.execute_query(
+                """
+                MATCH (s:ActivitySlice {id: $slice_id})
+                UNWIND $apps as app_name
+                MERGE (a:App {name: app_name})
+                ON CREATE SET a.id = randomUUID(), a.created_at = datetime()
+                MERGE (s)-[:USED_APP]->(a)
+                """,
+                {"slice_id": slice_node["id"], "apps": apps}
+            )
+
+        if artifact_ids:
+            await self.client.execute_query(
+                """
+                MATCH (s:ActivitySlice {id: $slice_id})
+                UNWIND $artifact_ids as art_id
+                MATCH (a:Artifact {id: art_id})
+                MERGE (s)-[:USED_ARTIFACT]->(a)
+                """,
+                {"slice_id": slice_node["id"], "artifact_ids": artifact_ids}
+            )
+
+        if concept_names:
+            await self.client.execute_query(
+                """
+                MATCH (p:Project {id: $project_id})
+                MATCH (s:ActivitySlice {id: $slice_id})
+                UNWIND $concept_names as cname
+                MERGE (t:Topic:Concept {name: cname})
+                ON CREATE SET t.id = randomUUID(), t.created_at = datetime(), t.project_id = $project_id
+                MERGE (t)-[:IN_PROJECT]->(p)
+                MERGE (s)-[:ABOUT]->(t)
+                """,
+                {"project_id": project_id, "slice_id": slice_node["id"], "concept_names": concept_names}
+            )
+
+        return slice_node
+
+    async def upsert_activity_session(
+        self,
+        project_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        title: str,
+        summary: Optional[str] = None,
+        outcome: Optional[str] = None,
+        concepts: Optional[List[str]] = None,
+        artifact_ids: Optional[List[str]] = None,
+        duration_seconds: Optional[int] = None,
+        open_loops: Optional[List[str]] = None,
+        confidence: float = 0.8,
+        embedding: Optional[List[float]] = None,
+        primary_concept: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert an activity session (episode)."""
+        session_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        CREATE (s:ActivitySession {
+            id: $session_id,
+            project_id: $project_id,
+            title: $title,
+            summary: $summary,
+            outcome: $outcome,
+            concepts: $concepts,
+            artifact_ids: $artifact_ids,
+            topic_name: $primary_concept,
+            duration_seconds: $duration_seconds,
+            open_loops: $open_loops,
+            confidence: $confidence,
+            start_time: $start_time,
+            end_time: $end_time,
+            embedding: $embedding,
+            created_at: datetime()
+        })
+        MERGE (s)-[:IN_PROJECT]->(p)
+        RETURN s {.*} as session
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "title": title,
+                "summary": summary,
+                "outcome": outcome,
+                "concepts": concepts or [],
+                "artifact_ids": artifact_ids or [],
+                "primary_concept": primary_concept,
+                "duration_seconds": duration_seconds,
+                "open_loops": open_loops or [],
+                "confidence": confidence,
+                "start_time": start_time,
+                "end_time": end_time,
+                "embedding": embedding,
+            }
+        )
+        return result[0]["session"] if result else {"id": session_id}
+
+    async def link_slice_to_session(self, slice_id: str, session_id: str) -> None:
+        """Link an ActivitySlice to an ActivitySession."""
+        await self.client.execute_query(
+            """
+            MATCH (s:ActivitySlice {id: $slice_id})
+            MATCH (ep:ActivitySession {id: $session_id})
+            MERGE (s)-[:IN_SESSION]->(ep)
+            """,
+            {"slice_id": slice_id, "session_id": session_id}
+        )
+
+    async def upsert_artifact(
+        self,
+        project_id: str,
+        canonical_id: str,
+        artifact_type: str = "unknown",
+        title: Optional[str] = None,
+        url_or_path: Optional[str] = None,
+        owner_org: Optional[str] = None,
+        embedding: Optional[List[float]] = None,
+    ) -> Dict[str, Any]:
+        """Upsert a general artifact node (doc/email/web/ticket/etc)."""
+        artifact_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        MERGE (a:Artifact {canonical_id: $canonical_id})
+        ON CREATE SET
+            a.id = $artifact_id,
+            a.project_id = $project_id,
+            a.type = $artifact_type,
+            a.title = $title,
+            a.url_or_path = $url_or_path,
+            a.owner_org = $owner_org,
+            a.embedding = $embedding,
+            a.created_at = datetime(),
+            a.last_seen_at = datetime()
+        ON MATCH SET
+            a.type = COALESCE($artifact_type, a.type),
+            a.title = COALESCE($title, a.title),
+            a.url_or_path = COALESCE($url_or_path, a.url_or_path),
+            a.owner_org = COALESCE($owner_org, a.owner_org),
+            a.embedding = COALESCE($embedding, a.embedding),
+            a.last_seen_at = datetime()
+        MERGE (a)-[:IN_PROJECT]->(p)
+        RETURN a {.*} as artifact
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "canonical_id": canonical_id,
+                "artifact_id": artifact_id,
+                "artifact_type": artifact_type,
+                "title": title,
+                "url_or_path": url_or_path,
+                "owner_org": owner_org,
+                "embedding": embedding,
+            }
+        )
+        return result[0]["artifact"] if result else {"id": artifact_id, "canonical_id": canonical_id}
+
+    async def link_event_to_artifact(self, event_id: str, artifact_id: str) -> None:
+        """Link a RawEvent to an Artifact."""
+        await self.client.execute_query(
+            """
+            MATCH (re:RawEvent {id: $event_id})
+            MATCH (a:Artifact {id: $artifact_id})
+            MERGE (re)-[:ON]->(a)
+            """,
+            {"event_id": event_id, "artifact_id": artifact_id}
+        )
+
+    async def link_event_to_app(self, event_id: str, app_name: str) -> None:
+        """Link a RawEvent to a Source App."""
+        if not app_name:
+            return
+        await self.client.execute_query(
+            """
+            MATCH (re:RawEvent {id: $event_id})
+            MERGE (a:App {name: $app_name})
+            ON CREATE SET a.id = randomUUID(), a.created_at = datetime()
+            MERGE (re)-[:USED_APP]->(a)
+            """,
+            {"event_id": event_id, "app_name": app_name}
+        )
+
+    async def link_event_to_topic(
+        self,
+        event_id: str,
+        topic_name: str,
+        confidence: float = 0.8,
+    ) -> None:
+        """Link a RawEvent to a Topic (Concept)."""
+        if not topic_name:
+            return
+        await self.client.execute_query(
+            """
+            MATCH (re:RawEvent {id: $event_id})
+            MATCH (p:Project {id: re.project_id})
+            MERGE (t:Topic:Concept {name: $topic_name})
+            ON CREATE SET t.id = randomUUID(), t.created_at = datetime(), t.frequency_7d = 1, t.last_seen_at = datetime(), t.project_id = re.project_id
+            ON MATCH SET t.last_seen_at = datetime(), t.frequency_7d = COALESCE(t.frequency_7d, 0) + 1
+            MERGE (t)-[:IN_PROJECT]->(p)
+            MERGE (re)-[m:MENTIONED]->(t)
+            ON CREATE SET m.confidence = $confidence, m.created_at = datetime()
+            ON MATCH SET m.confidence = CASE WHEN $confidence > m.confidence THEN $confidence ELSE m.confidence END
+            """,
+            {"event_id": event_id, "topic_name": topic_name, "confidence": confidence}
+        )
+
+    async def upsert_snippet(
+        self,
+        project_id: str,
+        text: str,
+        confidence: float = 0.6,
+        embedding: Optional[List[float]] = None,
+        source_event_id: Optional[str] = None,
+        artifact_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Create a snippet node and link to event/artifact if provided."""
+        snippet_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        CREATE (s:Snippet {
+            id: $snippet_id,
+            project_id: $project_id,
+            text: $text,
+            confidence: $confidence,
+            embedding: $embedding,
+            created_at: datetime()
+        })
+        MERGE (s)-[:IN_PROJECT]->(p)
+        RETURN s {.*} as snippet
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "snippet_id": snippet_id,
+                "text": text,
+                "confidence": confidence,
+                "embedding": embedding,
+            }
+        )
+        snippet = result[0]["snippet"] if result else {"id": snippet_id}
+
+        if source_event_id:
+            await self.client.execute_query(
+                """
+                MATCH (s:Snippet {id: $snippet_id})
+                MATCH (re:RawEvent {id: $event_id})
+                MERGE (s)-[:FROM_EVENT]->(re)
+                """,
+                {"snippet_id": snippet["id"], "event_id": source_event_id}
+            )
+
+        if artifact_id:
+            await self.client.execute_query(
+                """
+                MATCH (s:Snippet {id: $snippet_id})
+                MATCH (a:Artifact {id: $artifact_id})
+                MERGE (s)-[:ABOUT]->(a)
+                """,
+                {"snippet_id": snippet["id"], "artifact_id": artifact_id}
+            )
+
+        return snippet
+
+    async def upsert_concept_relation(
+        self,
+        concept_a: str,
+        concept_b: str,
+        weight: float = 1.0,
+    ) -> None:
+        """Upsert co-occurrence relation between concepts."""
+        if not concept_a or not concept_b or concept_a == concept_b:
+            return
+        await self.client.execute_query(
+            """
+            MERGE (a:Topic:Concept {name: $concept_a})
+            MERGE (b:Topic:Concept {name: $concept_b})
+            MERGE (a)-[r:RELATED]->(b)
+            ON CREATE SET r.weight = $weight, r.updated_at = datetime()
+            ON MATCH SET r.weight = COALESCE(r.weight, 0) + $weight, r.updated_at = datetime()
+            """,
+            {"concept_a": concept_a, "concept_b": concept_b, "weight": weight}
+        )
+
+    async def get_last_screenshot_event(
+        self,
+        project_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Fetch the most recent RawEvent with a screenshot hash."""
+        query = """
+        MATCH (re:RawEvent {project_id: $project_id})
+        WHERE re.screenshot_hash IS NOT NULL AND (re.is_duplicate IS NULL OR re.is_duplicate = false)
+        RETURN re {.*, id: re.id} as event
+        ORDER BY re.timestamp DESC
+        LIMIT 1
+        """
+        result = await self.client.execute_query(query, {"project_id": project_id})
+        if result:
+            return result[0]["event"]
+        return None
+
+    async def upsert_meeting(
+        self,
+        project_id: str,
+        title: str,
+        start_time: datetime,
+        end_time: datetime,
+        participants: List[str],
+        summary: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert a meeting."""
+        meeting_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        CREATE (m:Meeting {
+            id: $meeting_id,
+            title: $title,
+            start_time: $start_time,
+            end_time: $end_time,
+            summary: $summary,
+            project_id: $project_id,
+            created_at: datetime()
+        })
+        MERGE (m)-[:IN_PROJECT]->(p)
+        RETURN m {.*} as meeting
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "meeting_id": meeting_id,
+                "title": title,
+                "start_time": start_time,
+                "end_time": end_time,
+                "summary": summary,
+            }
+        )
+        meeting = result[0]["meeting"] if result else {"id": meeting_id}
+
+        # Link participants
+        for person_name in participants:
+            await self.client.execute_query(
+                """
+                MATCH (m:Meeting {id: $meeting_id})
+                MERGE (p:Person {name: $name})
+                MERGE (m)-[:PARTICIPANT]->(p)
+                """,
+                {"meeting_id": meeting["id"], "name": person_name}
+            )
+        return meeting
+
+    async def upsert_action_item(
+        self,
+        project_id: str,
+        title: str,
+        status: str = "open",
+        due_at: Optional[datetime] = None,
+        priority: str = "medium",
+        score: float = 0.0,
+        source_id: Optional[str] = None, # Slice ID or Meeting ID
+        assigned_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert an action item."""
+        action_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        MERGE (ai:ActionItem {project_id: $project_id, title: $title})
+        ON CREATE SET
+            ai.id = $action_id,
+            ai.status = $status,
+            ai.due_at = $due_at,
+            ai.priority = $priority,
+            ai.score = $score,
+            ai.created_at = datetime(),
+            ai.updated_at = datetime()
+        ON MATCH SET
+            ai.status = $status,
+            ai.due_at = COALESCE($due_at, ai.due_at),
+            ai.priority = $priority,
+            ai.score = $score,
+            ai.updated_at = datetime()
+        MERGE (ai)-[:RELATED_TO]->(p)
+        RETURN ai {.*} as action
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "action_id": action_id,
+                "title": title,
+                "status": status,
+                "due_at": due_at,
+                "priority": priority,
+                "score": score,
+            }
+        )
+        action = result[0]["action"] if result else {"id": action_id}
+
+        # Source link
+        if source_id:
+             await self.client.execute_query(
+                """
+                MATCH (ai:ActionItem {id: $action_id})
+                MATCH (source) WHERE source.id = $source_id
+                MERGE (ai)-[:DERIVED_FROM]->(source)
+                """,
+                {"action_id": action["id"], "source_id": source_id}
+            )
+
+        # Assignee link
+        if assigned_to:
+             await self.client.execute_query(
+                """
+                MATCH (ai:ActionItem {id: $action_id})
+                MERGE (p:Person {name: $name})
+                MERGE (ai)-[:ASSIGNED_TO]->(p)
+                """,
+                {"action_id": action["id"], "name": assigned_to}
+            )
+
+        return action
+
+    async def get_top_actions(
+        self,
+        project_id: str,
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Get top action items sorted by urgency score."""
+        query = """
+        MATCH (ai:ActionItem {project_id: $project_id})
+        WHERE ai.status <> 'completed'
+        RETURN ai {.*} as action
+        ORDER BY ai.score DESC, ai.due_at ASC
+        LIMIT $limit
+        """
+        result = await self.client.execute_query(query, {"project_id": project_id, "limit": limit})
+        return [r["action"] for r in result]
 
     # =========================================================================
     # CodeArtifact Operations
@@ -504,6 +1160,140 @@ class KGRepository:
 
         return artifact
 
+    # =========================================================================
+    # Knowledge Graph Refinement Operations (Gardener)
+    # =========================================================================
+
+    async def upsert_topic(
+        self,
+        project_id: str,
+        name: str,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Upsert a Topic node."""
+        topic_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        MERGE (t:Topic:Concept {project_id: $project_id, name: $name})
+        ON CREATE SET
+            t.id = $topic_id,
+            t.description = $description,
+            t.created_at = datetime(),
+            t.updated_at = datetime()
+        ON MATCH SET
+            t.description = COALESCE($description, t.description),
+            t.updated_at = datetime()
+        MERGE (t)-[:IN_PROJECT]->(p)
+        RETURN t {.*} as topic
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "topic_id": topic_id,
+                "name": name,
+                "description": description,
+            }
+        )
+        return result[0]["topic"] if result else {"id": topic_id, "name": name}
+
+    async def upsert_fact(
+        self,
+        project_id: str,
+        content: str,
+        topic_name: Optional[str] = None,
+        source_id: Optional[str] = None,  # ActivitySession ID
+        valid_from: Optional[datetime] = None,
+        confidence: float = 1.0,
+    ) -> Dict[str, Any]:
+        """Upsert a Fact node."""
+        fact_id = str(uuid4())
+        query = """
+        MATCH (p:Project {id: $project_id})
+        CREATE (f:Fact {
+            id: $fact_id,
+            content: $content,
+            project_id: $project_id,
+            confidence: $confidence,
+            valid_from: $valid_from,
+            created_at: datetime()
+        })
+        MERGE (f)-[:IN_PROJECT]->(p)
+        RETURN f {.*} as fact
+        """
+        result = await self.client.execute_query(
+            query,
+            {
+                "project_id": project_id,
+                "fact_id": fact_id,
+                "content": content,
+                "confidence": confidence,
+                "valid_from": valid_from or datetime.now(),
+            }
+        )
+        fact = result[0]["fact"] if result else {"id": fact_id}
+
+        # Link to Topic
+        if topic_name:
+            # Ensure topic exists first
+            await self.upsert_topic(project_id, topic_name)
+            await self.client.execute_query(
+                """
+                MATCH (f:Fact {id: $fact_id})
+                MATCH (t:Topic:Concept {project_id: $project_id, name: $topic_name})
+                MERGE (t)-[:HAS_FACT]->(f)
+                """,
+                {"fact_id": fact["id"], "project_id": project_id, "topic_name": topic_name}
+            )
+
+        # Link to Source Session
+        if source_id:
+            await self.client.execute_query(
+                """
+                MATCH (f:Fact {id: $fact_id})
+                MATCH (s:ActivitySession {id: $source_id})
+                MERGE (s)-[:REVEALED]->(f)
+                """,
+                {"fact_id": fact["id"], "source_id": source_id}
+            )
+
+        return fact
+
+
+
+    async def upsert_entity(
+        self,
+        project_id: str,
+        name: str,
+        entity_type: str,
+        context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Upsert a generic entity (Person, App, Organization)."""
+        if entity_type not in ["Person", "App", "Organization"]:
+            raise ValueError(f"Unsupported entity type: {entity_type}")
+
+        if not name:
+             return {}
+
+        query = f"""
+        MATCH (p:Project {{id: $project_id}})
+        MERGE (e:{entity_type} {{name: $name}})
+        ON CREATE SET e.created_at = datetime(), e.updated_at = datetime()
+        ON MATCH SET e.updated_at = datetime()
+
+        // Link to project (affiliation context)
+        MERGE (e)-[:ASSOCIATED_WITH]->(p)
+        RETURN e {{.*}} as entity
+        """
+
+        result = await self.client.execute_query(
+            query,
+            {"project_id": project_id, "name": name}
+        )
+        return result[0]["entity"] if result else {}
+
+
+
     async def upsert_symbol(
         self,
         artifact_id: str,
@@ -517,7 +1307,7 @@ class KGRepository:
     ) -> Dict[str, Any]:
         """
         Upsert a symbol node with full details and link to artifact.
-        
+
         Args:
             artifact_id: ID of the parent CodeArtifact
             fqn: Fully qualified name (e.g., "src/utils.py:calculate_tax")
@@ -527,7 +1317,7 @@ class KGRepository:
             line_end: Ending line number (1-indexed)
             signature: Full signature (e.g., "def calculate_tax(income: float) -> float")
             change_type: What happened: added, modified, deleted, renamed
-            
+
         Returns:
             The created/updated symbol node
         """
@@ -535,7 +1325,7 @@ class KGRepository:
         # Extract name from fqn if not provided
         if name is None:
             name = fqn.split(":")[-1] if ":" in fqn else fqn.split(".")[-1] if "." in fqn else fqn
-        
+
         query = """
         MATCH (ca:CodeArtifact {id: $artifact_id})
         MERGE (s:Symbol {fqn: $fqn})
@@ -577,6 +1367,47 @@ class KGRepository:
             },
         )
         return result[0]["symbol"] if result else {"id": symbol_id, "fqn": fqn}
+
+
+    async def upsert_research_brief(
+        self,
+        project_id: str,
+        topic_name: str,
+        content: str,
+        url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Upsert a Research Brief node."""
+        brief_id = str(uuid4())
+
+        query = """
+        MATCH (p:Project {id: $project_id})
+        MERGE (t:Topic:Concept {name: $topic_name})
+        ON CREATE SET t.id = $topic_id, t.created_at = datetime(), t.project_id = $project_id
+        MERGE (t)-[:IN_PROJECT]->(p)
+
+        CREATE (rb:ResearchBrief {
+            id: $brief_id,
+            content: $content,
+            url: $url,
+            created_at: datetime()
+        })
+
+        MERGE (rb)-[:ABOUT_TOPIC]->(t)
+        MERGE (rb)-[:IN_PROJECT]->(p)
+        RETURN rb {.*} as brief
+        """
+
+        params = {
+            "project_id": project_id,
+            "brief_id": brief_id,
+            "topic_id": str(uuid4()),
+            "topic_name": topic_name,
+            "content": content,
+            "url": url
+        }
+
+        result = await self.client.execute_query(query, params)
+        return result[0]["brief"] if result else {}
 
     async def get_artifacts_for_goal(self, goal_id: str) -> List[Dict[str, Any]]:
         """Get code artifacts implementing a goal."""
@@ -684,17 +1515,17 @@ class KGRepository:
         query = """
         MATCH (ca:CodeArtifact)
         WHERE ca.project_id = $project_id AND ca.path IN $paths
-        
+
         // Find implementing goals
         OPTIONAL MATCH (g:Goal)-[:IMPLEMENTED_BY]->(ca)
-        
+
         // Find related tests
         OPTIONAL MATCH (ca)-[:COVERED_BY]->(tc:TestCase)
-        
+
         // Find strategies via goals
         OPTIONAL MATCH (g)-[:HAS_STRATEGY]->(s:Strategy)
-        
-        WITH 
+
+        WITH
             collect(DISTINCT g {.*}) as affected_goals,
             collect(DISTINCT tc {.*}) as tests_to_run,
             collect(DISTINCT s {.*}) as strategies_to_review,

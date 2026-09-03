@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 280px; padding: 16px; font: 13px -apple-system, sans-serif; background: #121426; color: #f5f5f7; }
+    h1 { margin: 0 0 14px; font-size: 16px; }
+    label { display: block; margin: 10px 0 4px; color: #b9bbcc; }
+    input[type="text"], input[type="password"] { box-sizing: border-box; width: 100%; padding: 7px; border: 1px solid #3e415b; border-radius: 6px; background: #20233a; color: white; }
+    .toggle { display: flex; align-items: center; gap: 8px; color: white; }
+    button { width: 100%; margin-top: 14px; padding: 8px; border: 0; border-radius: 6px; background: #7567ff; color: white; font-weight: 600; }
+    #status { margin-top: 10px; color: #9ca0b8; }
+    .note { font-size: 11px; line-height: 1.35; color: #8f92a8; }
+  </style>
+</head>
+<body>
+  <h1>Neural Memory</h1>
+  <label class="toggle"><input type="checkbox" id="enabled"> Enable browser capture</label>
+  <p class="note">Off by default. Query strings and URL fragments are never sent.</p>
+  <label for="endpoint">Local server</label>
+  <input id="endpoint" type="text">
+  <label for="token">API token</label>
+  <input id="token" type="password">
+  <label for="projectId">Project</label>
+  <input id="projectId" type="text">
+  <button id="save">Save</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

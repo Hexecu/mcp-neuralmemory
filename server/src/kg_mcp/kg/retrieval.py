@@ -4,7 +4,7 @@ Navigates the graph to construct relevant context for IDE agents.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from kg_mcp.kg.repo import get_repository
@@ -95,7 +95,7 @@ class ContextBuilder:
 
         # Header
         sections.append(f"# 📋 Context Pack for Project: {project_id}")
-        sections.append(f"*Generated at: {datetime.utcnow().isoformat()}*\n")
+        sections.append(f"*Generated at: {datetime.now(timezone.utc).isoformat()}*\n")
 
         # Active Goals
         if entities["active_goals"]:

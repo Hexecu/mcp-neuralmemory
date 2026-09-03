@@ -1,48 +1,21 @@
-# MCP-KG-Memory Server
+# Neural Memory server
 
-Python MCP server implementation with Neo4j backend.
+The Python package provides three boundaries:
 
-## Development Setup
+- an authenticated local FastAPI ingestion API
+- a Neo4j repository and graph schema
+- the original project-memory MCP tools over stdio
+
+The supported zero-configuration path is the Docker Compose stack in the repository root. For development:
 
 ```bash
-# Create virtual environment
-python -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
-
-# Install dependencies (including dev)
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/ -v
-
-# Run server
-python -m kg_mcp.main
+python -m pip install -e '.[dev]'
+pytest -q
+kg-mcp --help
 ```
 
-## Project Structure
+Configuration comes from environment variables or the root `.env`. LLM enrichment is optional and disabled by default. The HTTP server fails closed if `NEO4J_PASSWORD` or `KG_MCP_TOKEN` is missing.
 
-```
-src/kg_mcp/
-├── main.py           # Entry point
-├── config.py         # Settings management
-├── llm/              # LLM integration
-│   ├── client.py     # LiteLLM wrapper
-│   ├── schemas.py    # Pydantic models
-│   └── prompts/      # Prompt templates
-├── kg/               # Knowledge graph
-│   ├── neo4j.py      # Driver/client
-│   ├── schema.cypher # DB schema
-│   ├── repo.py       # Query repository
-│   ├── ingest.py     # Ingestion pipeline
-│   └── retrieval.py  # Context builder
-├── mcp/              # MCP components
-│   ├── tools.py      # Tool definitions
-│   ├── resources.py  # Resource handlers
-│   └── prompts.py    # Prompt templates
-├── codegraph/        # Code indexing (V1)
-│   ├── model.py      # Data models
-│   └── indexer.py    # File indexer
-└── security/         # Auth/Origin
-    ├── auth.py       # Token validation
-    └── origin.py     # Origin checking
-```
+`mcp` is intentionally constrained to the compatible 1.x API. Supporting the 2.x SDK requires a deliberate protocol migration rather than an untested dependency upgrade.

@@ -123,3 +123,9 @@ Thumbs.db
 # Project specific
 *.log
 *.bak
+*.db
+*.sqlite*
+recent_activity*
+*.app/
+apps/macos/.build/
+.backups/

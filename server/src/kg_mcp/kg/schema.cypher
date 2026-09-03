@@ -56,6 +56,82 @@ CREATE CONSTRAINT testcase_id_unique IF NOT EXISTS
 FOR (tc:TestCase) REQUIRE tc.id IS UNIQUE;
 
 
+// RawEvent constraints
+CREATE CONSTRAINT rawevent_id_unique IF NOT EXISTS
+FOR (re:RawEvent) REQUIRE re.id IS UNIQUE;
+
+// ActivitySession constraints
+CREATE CONSTRAINT activity_session_id_unique IF NOT EXISTS
+FOR (s:ActivitySession) REQUIRE s.id IS UNIQUE;
+
+// ActivitySlice constraints
+CREATE CONSTRAINT activityslice_id_unique IF NOT EXISTS
+FOR (as:ActivitySlice) REQUIRE as.id IS UNIQUE;
+
+// Artifact (general) constraints
+CREATE CONSTRAINT artifact_canonical_unique IF NOT EXISTS
+FOR (a:Artifact) REQUIRE a.canonical_id IS UNIQUE;
+
+// Snippet constraints
+CREATE CONSTRAINT snippet_id_unique IF NOT EXISTS
+FOR (s:Snippet) REQUIRE s.id IS UNIQUE;
+
+// ============================================================================
+// Semantic Entities
+// ============================================================================
+
+// Person constraints
+CREATE CONSTRAINT person_name_unique IF NOT EXISTS
+FOR (p:Person) REQUIRE p.name IS UNIQUE;
+
+// Organization constraints
+CREATE CONSTRAINT org_name_unique IF NOT EXISTS
+FOR (o:Organization) REQUIRE o.name IS UNIQUE;
+
+// App constraints
+CREATE CONSTRAINT app_name_unique IF NOT EXISTS
+FOR (a:App) REQUIRE a.name IS UNIQUE;
+
+// Meeting constraints
+CREATE CONSTRAINT meeting_id_unique IF NOT EXISTS
+FOR (m:Meeting) REQUIRE m.id IS UNIQUE;
+
+// MediaArtifact constraints (Screenshots/Audio)
+CREATE CONSTRAINT mediaartifact_id_unique IF NOT EXISTS
+FOR (ma:MediaArtifact) REQUIRE ma.id IS UNIQUE;
+
+// Topic constraints
+CREATE CONSTRAINT topic_name_unique IF NOT EXISTS
+FOR (t:Topic) REQUIRE t.name IS UNIQUE;
+
+// ActionItem constraints
+CREATE CONSTRAINT actionitem_id_unique IF NOT EXISTS
+FOR (ai:ActionItem) REQUIRE ai.id IS UNIQUE;
+
+// Deadline constraints
+CREATE CONSTRAINT deadline_id_unique IF NOT EXISTS
+FOR (d:Deadline) REQUIRE d.id IS UNIQUE;
+
+// Person constraints
+CREATE CONSTRAINT person_name_unique IF NOT EXISTS
+FOR (p:Person) REQUIRE p.name IS UNIQUE;
+
+// Email constraints
+CREATE CONSTRAINT person_email_unique IF NOT EXISTS
+FOR (p:Person) REQUIRE p.email IS UNIQUE;
+
+// ResearchBrief constraints
+CREATE CONSTRAINT researchbrief_id_unique IF NOT EXISTS
+FOR (rb:ResearchBrief) REQUIRE rb.id IS UNIQUE;
+
+// Insight constraints (DeepSearch results)
+CREATE CONSTRAINT insight_id_unique IF NOT EXISTS
+FOR (ins:Insight) REQUIRE ins.id IS UNIQUE;
+
+// NightlyReport constraints
+CREATE CONSTRAINT nightlyreport_id_unique IF NOT EXISTS
+FOR (nr:NightlyReport) REQUIRE nr.id IS UNIQUE;
+
 // -----------------------------------------------------------------------------
 // INDEXES (Performance)
 // -----------------------------------------------------------------------------
@@ -117,6 +193,42 @@ CREATE INDEX symbol_lines_idx IF NOT EXISTS
 FOR (s:Symbol) ON (s.line_start, s.line_end);
 
 
+// RawEvent lookups
+CREATE INDEX rawevent_timestamp_idx IF NOT EXISTS
+FOR (re:RawEvent) ON (re.timestamp);
+
+// ActivitySession lookups
+CREATE INDEX activitysession_start_idx IF NOT EXISTS
+FOR (s:ActivitySession) ON (s.start_time);
+
+CREATE INDEX activitysession_end_idx IF NOT EXISTS
+FOR (s:ActivitySession) ON (s.end_time);
+
+// ActivitySlice lookups
+CREATE INDEX activityslice_start_idx IF NOT EXISTS
+FOR (as:ActivitySlice) ON (as.start_time);
+
+CREATE INDEX activityslice_end_idx IF NOT EXISTS
+FOR (as:ActivitySlice) ON (as.end_time);
+
+// Meeting lookups
+CREATE INDEX meeting_start_idx IF NOT EXISTS
+FOR (m:Meeting) ON (m.start_time);
+
+// ActionItem lookups
+CREATE INDEX actionitem_status_idx IF NOT EXISTS
+FOR (ai:ActionItem) ON (ai.status);
+
+CREATE INDEX actionitem_due_idx IF NOT EXISTS
+FOR (ai:ActionItem) ON (ai.due_at);
+
+CREATE INDEX actionitem_score_idx IF NOT EXISTS
+FOR (ai:ActionItem) ON (ai.score);
+
+// Deadline lookups
+CREATE INDEX deadline_due_idx IF NOT EXISTS
+FOR (d:Deadline) ON (d.due_at);
+
 // -----------------------------------------------------------------------------
 // FULLTEXT INDEXES (Search)
 // -----------------------------------------------------------------------------
@@ -141,6 +253,10 @@ FOR (d:Decision) ON EACH [d.title, d.decision, d.rationale];
 CREATE FULLTEXT INDEX artifact_fulltext IF NOT EXISTS
 FOR (ca:CodeArtifact) ON EACH [ca.path];
 
+// Fulltext search on Artifact (general)
+CREATE FULLTEXT INDEX artifact_general_fulltext IF NOT EXISTS
+FOR (a:Artifact) ON EACH [a.title, a.url_or_path, a.canonical_id];
+
 // Fulltext search on Interaction user text
 CREATE FULLTEXT INDEX interaction_fulltext IF NOT EXISTS
 FOR (i:Interaction) ON EACH [i.user_text];
@@ -148,6 +264,64 @@ FOR (i:Interaction) ON EACH [i.user_text];
 // Fulltext search on Symbol (name, fqn, signature)
 CREATE FULLTEXT INDEX symbol_fulltext IF NOT EXISTS
 FOR (s:Symbol) ON EACH [s.name, s.fqn, s.signature];
+
+
+// Fulltext search on Topic
+CREATE FULLTEXT INDEX topic_fulltext IF NOT EXISTS
+FOR (t:Topic) ON EACH [t.name];
+
+// Fulltext search on ActionItem
+CREATE FULLTEXT INDEX actionitem_fulltext IF NOT EXISTS
+FOR (ai:ActionItem) ON EACH [ai.title, ai.description];
+
+// Fulltext search on Meeting
+CREATE FULLTEXT INDEX meeting_fulltext IF NOT EXISTS
+FOR (m:Meeting) ON EACH [m.title, m.summary];
+
+// Fulltext search on RawEvent content (if indexed)
+CREATE FULLTEXT INDEX rawevent_fulltext IF NOT EXISTS
+FOR (re:RawEvent) ON EACH [re.text_content];
+
+// Fulltext search on Snippet
+CREATE FULLTEXT INDEX snippet_fulltext IF NOT EXISTS
+FOR (s:Snippet) ON EACH [s.text];
+
+// Fulltext search on ActivitySession (Episode)
+CREATE FULLTEXT INDEX activitysession_fulltext IF NOT EXISTS
+FOR (s:ActivitySession) ON EACH [s.title, s.summary, s.outcome];
+
+// Fulltext search on Insight (DeepSearch results)
+CREATE FULLTEXT INDEX insight_fulltext IF NOT EXISTS
+FOR (ins:Insight) ON EACH [ins.title, ins.summary];
+
+// -----------------------------------------------------------------------------
+// VECTOR INDEXES (Semantic Search)
+// -----------------------------------------------------------------------------
+
+// Vector index on Topic embedding (for semantic similarity)
+CREATE VECTOR INDEX topic_embedding_idx IF NOT EXISTS
+FOR (t:Topic) ON (t.embedding)
+OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+// Vector index on Insight embedding (for DeepSearch retrieval)
+CREATE VECTOR INDEX insight_embedding_idx IF NOT EXISTS
+FOR (ins:Insight) ON (ins.embedding)
+OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+// Vector index on Snippet embedding
+CREATE VECTOR INDEX snippet_embedding_idx IF NOT EXISTS
+FOR (s:Snippet) ON (s.embedding)
+OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+// Vector index on Artifact embedding
+CREATE VECTOR INDEX artifact_embedding_idx IF NOT EXISTS
+FOR (a:Artifact) ON (a.embedding)
+OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
+
+// Vector index on ActivitySession embedding
+CREATE VECTOR INDEX activitysession_embedding_idx IF NOT EXISTS
+FOR (s:ActivitySession) ON (s.embedding)
+OPTIONS {indexConfig: {`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}};
 
 
 // -----------------------------------------------------------------------------
@@ -174,3 +348,15 @@ FOR (s:Symbol) ON EACH [s.name, s.fqn, s.signature];
 // (CodeArtifact)-[:COVERED_BY]->(TestCase)
 // (CodeArtifact)-[:TOUCHED_IN]->(Interaction)
 // (CodeArtifact)-[:CHANGED_IN]->(CodeChange)
+//
+// --- Mac Life Memory Relationships ---
+// (ActivitySlice)-[:INCLUDES]->(RawEvent)
+// (ActivitySlice)-[:HAS_ARTIFACT]->(MediaArtifact)
+// (RawEvent)-[:HAS_ARTIFACT]->(MediaArtifact)
+// (Meeting)-[:PARTICIPANT]->(Person)
+// (ActionItem)-[:RELATED_TO]->(Topic)
+// (ActionItem)-[:RELATED_TO]->(Project)
+// (ActionItem)-[:ASSIGNED_TO]->(Person)
+// (ActionItem)-[:DERIVED_FROM]->(ActivitySlice|Meeting)
+// (Deadline)-[:DERIVED_FROM]->(ActivitySlice|Meeting)
+// (Topic)-[:MENTIONED_IN]->(ActivitySlice|Meeting)

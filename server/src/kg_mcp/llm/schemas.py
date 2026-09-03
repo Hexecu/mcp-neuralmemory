@@ -3,7 +3,7 @@ Pydantic schemas for LLM input/output validation.
 These define the structured format for entity extraction and linking.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
@@ -144,8 +144,8 @@ class BaseNode(BaseModel):
     """Base class for all graph nodes."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class InteractionNode(BaseNode):

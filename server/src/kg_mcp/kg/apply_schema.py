@@ -8,7 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
-from kg_mcp.kg.neo4j import get_neo4j_client, init_neo4j, close_neo4j
+from kg_mcp.kg.client import get_neo4j_client, init_neo4j, close_neo4j
 
 logging.basicConfig(
     level=logging.INFO,
@@ -82,6 +82,8 @@ async def apply_schema() -> None:
     logger.info(f"  ✗ Errors:  {error_count}")
 
     await close_neo4j()
+    if error_count:
+        raise RuntimeError(f"Failed to apply {error_count} schema statement(s)")
 
 
 def main() -> None:
