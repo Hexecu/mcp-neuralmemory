@@ -1,14 +1,17 @@
-// AppDelegate.swift
-// Handles app lifecycle and background tasks
-
 import Cocoa
+import SwiftUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    private var dashboardWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Collection is opt-in and remains disabled on a fresh install.
+        NSApp.setActivationPolicy(.regular)
         Task {
             await startServicesIfEnabled()
+        }
+
+        Task { @MainActor in
+            self.showDashboardWindow()
         }
 
         // Show onboarding if first launch
@@ -22,6 +25,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Cleanup
         EventCaptureService.shared.stop()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        Task { @MainActor in
+            self.showDashboardWindow()
+        }
+        return true
+    }
+
+    @MainActor
+    func showDashboardWindow() {
+        if dashboardWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.center()
+            window.title = "Neural Memory Agent"
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
+            window.contentView = NSHostingView(
+                rootView: PremiumDashboardView().environmentObject(AppState.shared)
+            )
+            dashboardWindow = window
+        }
+        dashboardWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func startServicesIfEnabled() async {

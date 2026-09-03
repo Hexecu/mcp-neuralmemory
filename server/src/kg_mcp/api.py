@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from kg_mcp import __version__
@@ -397,5 +397,60 @@ def create_api_app(
             "gemini_model": settings.gemini_model,
             "mcp_port": settings.mcp_port,
         })
+
+    @app.get("/graph", response_class=HTMLResponse)
+    async def get_graph_page() -> str:
+        from pathlib import Path
+        html_path = Path(__file__).parent / "web" / "graph.html"
+        if html_path.exists():
+            return html_path.read_text(encoding="utf-8")
+        return "<h1>Graph Visualizer not found</h1>"
+
+    @app.get("/api/graph/data")
+    async def get_graph_data(project_id: str = "default") -> dict[str, Any]:
+        repository = get_repository()
+        query = """
+        MATCH (n)
+        WHERE n:Decision OR n:Commitment OR n:Meeting OR n:Reflection
+           OR n:Insight OR n:Person OR n:Topic OR n:Artifact
+        WITH n LIMIT 250
+        OPTIONAL MATCH (n)-[r]->(m)
+        WHERE m:Decision OR m:Commitment OR m:Meeting OR m:Reflection
+           OR m:Insight OR m:Person OR m:Topic OR m:Artifact
+        RETURN n, type(r) as rel_type, m
+        """
+        try:
+            records = await repository.client.execute_query(query)
+            nodes_map = {}
+            links = []
+            for row in records:
+                n = row["n"]
+                if n and n.element_id not in nodes_map:
+                    props = dict(n)
+                    labels = list(n.labels)
+                    nodes_map[n.element_id] = {
+                        "id": n.element_id,
+                        "labels": labels,
+                        **serialize_response(props),
+                    }
+                m = row["m"]
+                if m and m.element_id not in nodes_map:
+                    props = dict(m)
+                    labels = list(m.labels)
+                    nodes_map[m.element_id] = {
+                        "id": m.element_id,
+                        "labels": labels,
+                        **serialize_response(props),
+                    }
+                if row["rel_type"] and n and m:
+                    links.append({
+                        "source": n.element_id,
+                        "target": m.element_id,
+                        "type": row["rel_type"],
+                    })
+            return {"nodes": list(nodes_map.values()), "links": links}
+        except Exception as e:
+            logger.exception("get_graph_data failed: %s", e)
+            return {"nodes": [], "links": []}
 
     return app

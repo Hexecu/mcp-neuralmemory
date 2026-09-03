@@ -90,6 +90,18 @@ struct MenuBarView: View {
                 .buttonStyle(MenuItemButtonStyle())
 
                 Button {
+                    openGraphVisualizer()
+                } label: {
+                    HStack {
+                        Image(systemName: "point.3.filled.connected.trianglepath.dotted")
+                            .frame(width: 20)
+                        Text("View Memory Graph")
+                        Spacer()
+                    }
+                }
+                .buttonStyle(MenuItemButtonStyle())
+
+                Button {
                     NSApplication.shared.terminate(nil)
                 } label: {
                     HStack {
@@ -115,8 +127,15 @@ struct MenuBarView: View {
     }
 
     private func openDashboard() {
-        // Open browser to dashboard
-        if let url = URL(string: appState.serverURL + "/docs") {
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            Task { @MainActor in
+                appDelegate.showDashboardWindow()
+            }
+        }
+    }
+
+    private func openGraphVisualizer() {
+        if let url = URL(string: appState.serverURL + "/graph") {
             NSWorkspace.shared.open(url)
         }
     }

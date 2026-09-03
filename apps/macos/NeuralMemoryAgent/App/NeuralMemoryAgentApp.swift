@@ -9,13 +9,6 @@ struct NeuralMemoryAgentApp: App {
     @StateObject private var appState = AppState.shared
 
     var body: some Scene {
-        // Main window for Dock click
-        WindowGroup {
-            PremiumDashboardView()
-                .environmentObject(appState)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 420, height: 520)
 
         // Menu bar icon
         MenuBarExtra {
