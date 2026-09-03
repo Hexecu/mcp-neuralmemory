@@ -222,6 +222,7 @@ async def analyze_screenshot(
             ],
             "max_tokens": 2000,
             "temperature": 0.1,
+            "response_format": {"type": "json_object"},
         }
 
         if settings.llm_mode == "litellm" and settings.litellm_base_url:
@@ -247,7 +248,12 @@ async def analyze_screenshot(
             if start != -1 and end != -1:
                 json_text = json_text[start:end + 1]
 
-        data = json.loads(json_text.strip())
+        try:
+            data = json.loads(json_text.strip())
+        except Exception:
+            import re
+            cleaned = re.sub(r',\s*([\]}])', r'\1', json_text.strip())
+            data = json.loads(cleaned)
         return _coerce_analysis(data, app, window, timestamp)
 
     except Exception as e:
@@ -287,6 +293,7 @@ async def analyze_text_content(
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 1500,
             "temperature": 0.1,
+            "response_format": {"type": "json_object"},
         }
 
         if settings.llm_mode == "litellm" and settings.litellm_base_url:
@@ -312,7 +319,12 @@ async def analyze_text_content(
             if start != -1 and end != -1:
                 json_text = json_text[start:end + 1]
 
-        data = json.loads(json_text.strip())
+        try:
+            data = json.loads(json_text.strip())
+        except Exception:
+            import re
+            cleaned = re.sub(r',\s*([\]}])', r'\1', json_text.strip())
+            data = json.loads(cleaned)
         return _coerce_analysis(data, app, "", timestamp)
 
     except Exception as e:
