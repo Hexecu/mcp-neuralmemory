@@ -309,3 +309,42 @@ def register_life_tools(mcp: FastMCP) -> None:
         except Exception as e:
             logger.error(f"get_daily_briefing failed: {e}")
             return {"error": str(e)}
+
+    @mcp.tool()
+    async def trigger_dream_cycle(
+        project_id: str = "default",
+    ) -> Dict[str, Any]:
+        """
+        Trigger a subconscious Dream Consolidation cycle across the Knowledge Graph.
+        Replays recent events, identifies emergent strategic themes, and synthesizes Reflections.
+        """
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            return await consolidator.run_dream_cycle()
+        except Exception as e:
+            logger.error(f"trigger_dream_cycle failed: {e}")
+            return {"error": str(e)}
+
+    @mcp.tool()
+    async def recall_reflections(
+        project_id: str = "default",
+        category: Optional[str] = None,
+        topic: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recall higher-order strategic reflections and emergent patterns generated in Dream Mode.
+        Answers: 'What strategic patterns emerged recently?', 'What does Dream Mode say about X?'.
+        """
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            return await consolidator.recall_reflections(
+                category=category, topic=topic, limit=limit
+            )
+        except Exception as e:
+            logger.error(f"recall_reflections failed: {e}")
+            return [{"error": str(e)}]

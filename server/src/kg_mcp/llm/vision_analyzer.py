@@ -197,13 +197,18 @@ def _robust_json_loads(text: str) -> dict:
 
     # 1. Remove trailing commas before } or ]
     repaired = re.sub(r',\s*([\]}])', r'\1', cleaned)
-    # 2. Insert missing comma between adjacent properties (e.g. "val"\n"key" or 0.9\n"key")
+
+    # 2. Insert missing comma between string elements in arrays: "val1"\n"val2"
+    repaired = re.sub(r'(\"[^\"]*\")\s*\n\s*(\"[^\"]*\")', r'\1,\n\2', repaired)
+
+    # 3. Insert missing comma between adjacent properties: "val"\n"key":
     repaired = re.sub(
         r'([0-9]|true|false|null|[\"\]}])\s*\n\s*(\"[a-zA-Z0-9_]+\"\s*:)',
         r'\1,\n\2',
         repaired,
     )
-    # 3. Insert missing comma between adjacent objects or arrays
+
+    # 4. Insert missing comma between adjacent objects or arrays
     repaired = re.sub(r'}\s*\n\s*{', r'},\n{', repaired)
     repaired = re.sub(r']\s*\n\s*\[', r'],\n[', repaired)
 
@@ -212,9 +217,44 @@ def _robust_json_loads(text: str) -> dict:
     except Exception:
         pass
 
-    # 4. Escape stray backslashes
+    # 5. Escape stray backslashes
     escaped = re.sub(r'\\(?![/u"bfnrt\\])', r'\\\\', repaired)
-    return json.loads(escaped)
+    try:
+        return json.loads(escaped)
+    except Exception:
+        pass
+
+    # 6. Line-by-line comma insertion fallback
+    lines = escaped.splitlines()
+    new_lines = []
+    for i, line in enumerate(lines):
+        stripped = line.rstrip()
+        if i < len(lines) - 1:
+            next_stripped = lines[i + 1].lstrip()
+            if (
+                stripped
+                and not stripped.endswith((",", "{", "[", ":"))
+                and next_stripped
+                and not next_stripped.startswith(("}", "]", ",", ":"))
+            ):
+                stripped += ","
+        new_lines.append(stripped)
+    rejoined = "\n".join(new_lines)
+    try:
+        return json.loads(rejoined)
+    except Exception:
+        pass
+
+    # 7. Truncated output recovery: cut back to last closed object and close open braces/brackets
+    last_obj_end = rejoined.rfind("}")
+    if last_obj_end != -1:
+        cut = rejoined[:last_obj_end + 1]
+        open_brackets = cut.count("[") - cut.count("]")
+        open_braces = cut.count("{") - cut.count("}")
+        closed = cut + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces))
+        return json.loads(closed)
+
+    return json.loads(rejoined)
 
 
 async def analyze_screenshot(

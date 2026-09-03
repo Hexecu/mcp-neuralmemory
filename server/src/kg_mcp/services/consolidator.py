@@ -157,3 +157,264 @@ class MemoryConsolidator:
         except Exception as e:
             logger.error("Error generating daily briefing: %s", e)
             return {"error": str(e), "date": target_date}
+
+    async def run_dream_cycle(self) -> Dict[str, Any]:
+        """
+        Execute a subconscious Dream Consolidation cycle across the Knowledge Graph.
+        Replays recent events, identifies emergent strategic themes, finds latent connections,
+        and generates high-order Reflection nodes on Neo4j.
+        """
+        from kg_mcp.config import get_settings
+        from kg_mcp.llm.vision_analyzer import _robust_json_loads
+        from litellm import acompletion
+        import json
+
+        settings = get_settings()
+        if not settings.llm_enabled:
+            return {"status": "skipped", "reason": "llm_disabled"}
+
+        # 1. Fetch graph state for consolidation
+        decisions = await self.repo.client.execute_query("""
+            MATCH (d:Decision)
+            RETURN d.title as title, d.verdict as verdict, d.rationale as rationale,
+                   d.subject as subject
+            ORDER BY d.decided_at DESC
+            LIMIT 15
+        """)
+        commitments = await self.repo.client.execute_query("""
+            MATCH (c:Commitment)
+            WHERE c.status = 'open'
+            RETURN c.title as title, c.task_description as task, c.due_date_iso as due_date,
+                   c.debtor as debtor, c.creditor as creditor
+            ORDER BY c.created_at DESC
+            LIMIT 15
+        """)
+        meetings = await self.repo.client.execute_query("""
+            MATCH (m:Meeting)
+            OPTIONAL MATCH (p:Person)-[:ATTENDED]->(m)
+            RETURN m.title as title, m.timestamp as timestamp, collect(DISTINCT p.name) as attendees
+            ORDER BY timestamp DESC
+            LIMIT 10
+        """)
+        insights = await self.repo.client.execute_query("""
+            MATCH (ins:Insight)
+            RETURN ins.topic as topic, ins.takeaway as takeaway, ins.source_url_or_doc as source
+            ORDER BY ins.created_at DESC
+            LIMIT 10
+        """)
+        topics = await self.repo.client.execute_query("""
+            MATCH (t:Topic)
+            RETURN t.name as name
+            LIMIT 25
+        """)
+        people = await self.repo.client.execute_query("""
+            MATCH (p:Person)
+            RETURN p.name as name
+            LIMIT 25
+        """)
+
+        total_nodes = len(decisions) + len(commitments) + len(meetings) + len(insights)
+        if total_nodes == 0:
+            return {"status": "skipped", "reason": "no_memories_to_consolidate"}
+
+        prompt = f"""You are the subconscious Dream Engine of a cognitive personal memory assistant.
+During Dream Mode, you consolidate episodic memories into higher-order mental reflections,
+strategic patterns, and cross-cutting connections.
+
+WORKING GRAPH STATE:
+DECISIONS:
+{json.dumps(serialize_response(decisions), ensure_ascii=False, indent=2)}
+
+OPEN COMMITMENTS:
+{json.dumps(serialize_response(commitments), ensure_ascii=False, indent=2)}
+
+MEETINGS:
+{json.dumps(serialize_response(meetings), ensure_ascii=False, indent=2)}
+
+RESEARCH INSIGHTS:
+{json.dumps(serialize_response(insights), ensure_ascii=False, indent=2)}
+
+ACTIVE TOPICS:
+{[t['name'] for t in topics]}
+
+PEOPLE INVOLVED:
+{[p['name'] for p in people]}
+
+INSTRUCTIONS:
+1. Replay and consolidate: identify 2-3 high-level reflections or strategic patterns connecting
+   multiple events, people, or decisions.
+2. For each reflection, provide:
+   - title: concise descriptive title
+   - category: strategic | operational | risk | relationship | synthesis
+   - synthesis: multi-sentence explanation of the pattern or emergent connection
+   - related_topics: list of topic names related to this reflection
+   - related_people: list of people involved or mentioned
+   - actionable_suggestion: proactive advice or key takeaway for the user
+3. Propose cross_entity_links: associative bridges between a person and a topic with nature.
+
+Return a JSON object conforming to:
+{{
+  "reflections": [
+    {{
+      "title": "Title",
+      "category": "strategic",
+      "synthesis": "Synthesis text",
+      "related_topics": ["Topic"],
+      "related_people": ["Person"],
+      "actionable_suggestion": "Suggestion text"
+    }}
+  ],
+  "cross_entity_links": [
+    {{
+      "person": "Name",
+      "topic": "Topic Name",
+      "nature": "collaborates_on | specialist_in | negotiated"
+    }}
+  ]
+}}"""
+
+        model = settings.litellm_model if settings.llm_mode == "litellm" else settings.gemini_model
+        model = model or settings.llm_model
+
+        completion_kwargs = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 4000,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+        }
+        if settings.llm_mode == "litellm" and settings.litellm_base_url:
+            completion_kwargs["api_base"] = settings.litellm_base_url
+            completion_kwargs["api_key"] = settings.litellm_api_key
+            completion_kwargs["custom_llm_provider"] = "openai"
+        elif settings.gemini_api_key:
+            completion_kwargs["api_key"] = settings.gemini_api_key
+
+        try:
+            response = await acompletion(**completion_kwargs)
+            raw_text = response.choices[0].message.content or "{}"
+            dream_data = _robust_json_loads(raw_text)
+
+            created_reflections = []
+            for ref in dream_data.get("reflections", []):
+                ref_id = str(uuid4())
+                await self.repo.client.execute_query(
+                    """
+                    MATCH (p:Project {id: $project_id})
+                    CREATE (r:Reflection:DreamInsight {
+                        id: $ref_id,
+                        title: $title,
+                        category: $category,
+                        synthesis: $synthesis,
+                        actionable_suggestion: $suggestion,
+                        project_id: $project_id,
+                        dream_cycle_at: datetime(),
+                        created_at: datetime()
+                    })
+                    MERGE (r)-[:IN_PROJECT]->(p)
+                    """,
+                    {
+                        "project_id": self.project_id,
+                        "ref_id": ref_id,
+                        "title": ref.get("title", "Reflection"),
+                        "category": ref.get("category", "synthesis"),
+                        "synthesis": ref.get("synthesis", ""),
+                        "suggestion": ref.get("actionable_suggestion", ""),
+                    },
+                )
+
+                # Link topics
+                for t_name in ref.get("related_topics", []):
+                    await self.repo.client.execute_query(
+                        """
+                        MATCH (r:Reflection {id: $ref_id})
+                        MERGE (t:Topic {name: $topic_name})
+                        MERGE (r)-[:ABOUT_TOPIC]->(t)
+                        """,
+                        {"ref_id": ref_id, "topic_name": t_name},
+                    )
+
+                # Link people
+                for p_name in ref.get("related_people", []):
+                    await self.repo.client.execute_query(
+                        """
+                        MATCH (r:Reflection {id: $ref_id})
+                        MERGE (person:Person {name: $person_name})
+                        MERGE (r)-[:INVOLVES_PERSON]->(person)
+                        """,
+                        {"ref_id": ref_id, "person_name": p_name},
+                    )
+
+                created_reflections.append({
+                    "id": ref_id,
+                    "title": ref.get("title"),
+                    "category": ref.get("category"),
+                    "synthesis": ref.get("synthesis"),
+                    "suggestion": ref.get("actionable_suggestion"),
+                    "related_topics": ref.get("related_topics", []),
+                    "related_people": ref.get("related_people", []),
+                })
+
+            # Create cross-entity associative links
+            cross_links = dream_data.get("cross_entity_links", [])
+            for link in cross_links:
+                p_name = link.get("person")
+                t_name = link.get("topic")
+                nature = link.get("nature", "associated_with")
+                if p_name and t_name:
+                    await self.repo.client.execute_query(
+                        """
+                        MERGE (p:Person {name: $person_name})
+                        MERGE (t:Topic {name: $topic_name})
+                        MERGE (p)-[:ASSOCIATED_WITH {nature: $nature, source: 'dream_engine'}]->(t)
+                        """,
+                        {"person_name": p_name, "topic_name": t_name, "nature": nature},
+                    )
+
+            logger.info("Dream cycle generated %d reflections and %d cross-links",
+                        len(created_reflections), len(cross_links))
+
+            return {
+                "status": "ok",
+                "dream_cycle_at": datetime.now(timezone.utc).isoformat(),
+                "reflections_count": len(created_reflections),
+                "cross_links_count": len(cross_links),
+                "reflections": created_reflections,
+            }
+
+        except Exception as e:
+            logger.error("Dream consolidation cycle failed: %s | Raw text: %s", e, raw_text if 'raw_text' in locals() else 'None')
+            return {"status": "error", "error": str(e)}
+
+    async def recall_reflections(
+        self,
+        category: Optional[str] = None,
+        topic: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Recall higher-order reflections and strategic patterns created during Dream Mode."""
+        query = """
+        MATCH (r:Reflection)
+        WHERE ($category IS NULL OR r.category = $category)
+          AND ($topic IS NULL OR EXISTS {
+              MATCH (r)-[:ABOUT_TOPIC]->(t:Topic)
+              WHERE toLower(t.name) CONTAINS toLower($topic)
+          })
+        OPTIONAL MATCH (r)-[:ABOUT_TOPIC]->(t:Topic)
+        OPTIONAL MATCH (r)-[:INVOLVES_PERSON]->(p:Person)
+        RETURN r.id as id, r.title as title, r.category as category, r.synthesis as synthesis,
+               r.actionable_suggestion as suggestion, r.created_at as created_at,
+               collect(DISTINCT t.name) as topics,
+               collect(DISTINCT p.name) as people
+        ORDER BY created_at DESC
+        LIMIT $limit
+        """
+        try:
+            records = await self.repo.client.execute_query(
+                query,
+                {"category": category, "topic": topic, "limit": limit},
+            )
+            return serialize_response(records)
+        except Exception as e:
+            logger.error("recall_reflections failed: %s", e)
+            return [{"error": str(e)}]

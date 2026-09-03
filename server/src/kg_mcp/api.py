@@ -331,7 +331,7 @@ def create_api_app(
 
     @app.post("/api/memory/consolidate", dependencies=[Depends(require_token)])
     async def consolidate_memory(
-        project_id: str = "default", retention_days: int = 2
+        project_id: str = "default", retention_days: int = 2, run_dream: bool = False
     ) -> dict[str, Any]:
         from kg_mcp.services.consolidator import MemoryConsolidator
 
@@ -339,10 +339,42 @@ def create_api_app(
             consolidator = MemoryConsolidator(project_id=project_id)
             pruned = await consolidator.prune_ephemeral_events(retention_days=retention_days)
             deduped = await consolidator.deduplicate_topics()
-            return {"status": "ok", "pruned_events": pruned, "deduped_topics": deduped}
+            result = {"status": "ok", "pruned_events": pruned, "deduped_topics": deduped}
+            if run_dream:
+                result["dream"] = await consolidator.run_dream_cycle()
+            return result
         except Exception:
             logger.exception("Memory consolidation failed")
             raise HTTPException(status_code=500, detail="Consolidation failed") from None
+
+    @app.post("/api/memory/dream", dependencies=[Depends(require_token)])
+    async def run_dream_cycle(project_id: str = "default") -> dict[str, Any]:
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            return await consolidator.run_dream_cycle()
+        except Exception:
+            logger.exception("Dream cycle failed")
+            raise HTTPException(status_code=500, detail="Dream cycle failed") from None
+
+    @app.get("/api/memory/reflections", dependencies=[Depends(require_token)])
+    async def get_reflections(
+        project_id: str = "default",
+        category: str | None = None,
+        topic: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            return await consolidator.recall_reflections(
+                category=category, topic=topic, limit=limit
+            )
+        except Exception:
+            logger.exception("Recalling reflections failed")
+            raise HTTPException(status_code=500, detail="Recalling reflections failed") from None
 
     @app.get("/api/memory/briefing", dependencies=[Depends(require_token)])
     async def get_briefing(project_id: str = "default", date: str | None = None) -> dict[str, Any]:
