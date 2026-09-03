@@ -173,3 +173,139 @@ def register_life_tools(mcp: FastMCP) -> None:
         except Exception as e:
             logger.error(f"deep_search failed: {e}")
             return {"error": str(e)}
+
+    @mcp.tool()
+    async def recall_decisions(
+        project_id: str = "default",
+        query: Optional[str] = None,
+        person: Optional[str] = None,
+        days_back: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recall past decisions, approvals, confirmations, and choices.
+        Answers: 'What did I approve?', 'Did I say yes to the quote?', 'Decisions with Person X'.
+        """
+        repo = get_repository()
+        cypher = """
+        MATCH (d:Decision)
+        WHERE d.decided_at >= datetime() - duration({days: $days_back})
+          AND ($person IS NULL OR EXISTS {
+              MATCH (d)-[:TOWARDS_PERSON]->(p:Person)
+              WHERE toLower(p.name) CONTAINS toLower($person)
+          })
+          AND ($query IS NULL OR toLower(d.title) CONTAINS toLower($query)
+               OR toLower(d.rationale) CONTAINS toLower($query)
+               OR toLower(d.subject) CONTAINS toLower($query))
+        OPTIONAL MATCH (d)-[:TOWARDS_PERSON]->(p:Person)
+        OPTIONAL MATCH (d)-[:ON_ARTIFACT]->(a:Artifact)
+        OPTIONAL MATCH (d)-[:ABOUT_TOPIC]->(t:Topic)
+        RETURN d.id as id, d.title as title, d.verdict as verdict, d.rationale as rationale,
+               d.subject as subject, d.decided_at as decided_at,
+               p.name as towards_person, a.title as artifact_title,
+               collect(DISTINCT t.name) as topics
+        ORDER BY decided_at DESC
+        LIMIT 20
+        """
+        try:
+            records = await repo.client.execute_query(
+                cypher,
+                {"days_back": days_back, "person": person, "query": query},
+            )
+            return serialize_response(records)
+        except Exception as e:
+            logger.error(f"recall_decisions failed: {e}")
+            return [{"error": str(e)}]
+
+    @mcp.tool()
+    async def recall_commitments(
+        project_id: str = "default",
+        status: str = "open",
+        person: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recall commitments, promises, and deadlines made by user or received from counterparties.
+        Answers: 'What promises did I make in email/chat?', 'What pending tasks did I commit to?'.
+        """
+        repo = get_repository()
+        cypher = """
+        MATCH (c:Commitment)
+        WHERE ($status = 'all' OR c.status = $status)
+          AND ($person IS NULL OR EXISTS {
+              MATCH (c)-[:PROMISED_TO|PROMISED_BY]->(p:Person)
+              WHERE toLower(p.name) CONTAINS toLower($person)
+          })
+        OPTIONAL MATCH (c)-[:PROMISED_TO]->(p1:Person)
+        OPTIONAL MATCH (c)-[:PROMISED_BY]->(p2:Person)
+        RETURN c.id as id, c.title as title, c.task_description as task,
+               c.due_date_iso as due_date, c.status as status, c.debtor as debtor,
+               p1.name as creditor_name, p2.name as debtor_name, c.created_at as created_at
+        ORDER BY created_at DESC
+        LIMIT 25
+        """
+        try:
+            records = await repo.client.execute_query(
+                cypher,
+                {"status": status, "person": person},
+            )
+            return serialize_response(records)
+        except Exception as e:
+            logger.error(f"recall_commitments failed: {e}")
+            return [{"error": str(e)}]
+
+    @mcp.tool()
+    async def recall_meetings(
+        project_id: str = "default",
+        topic: Optional[str] = None,
+        person: Optional[str] = None,
+        days_back: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """
+        Recall past calls and meetings (Google Meet, Zoom, Teams, Slack Huddle).
+        Answers: 'Who attended the call about pricing?', 'What calls did I have with Marco?'.
+        """
+        repo = get_repository()
+        cypher = """
+        MATCH (m:Meeting)
+        WHERE m.timestamp >= datetime() - duration({days: $days_back})
+          AND ($person IS NULL OR EXISTS {
+              MATCH (p:Person)-[:ATTENDED]->(m)
+              WHERE toLower(p.name) CONTAINS toLower($person)
+          })
+          AND ($topic IS NULL OR toLower(m.title) CONTAINS toLower($topic) OR EXISTS {
+              MATCH (m)-[:DISCUSSED]->(t:Topic)
+              WHERE toLower(t.name) CONTAINS toLower($topic)
+          })
+        OPTIONAL MATCH (p:Person)-[:ATTENDED]->(m)
+        OPTIONAL MATCH (m)-[:DISCUSSED]->(t:Topic)
+        RETURN m.id as id, m.title as title, m.duration as duration, m.timestamp as timestamp,
+               collect(DISTINCT p.name) as participants,
+               collect(DISTINCT t.name) as topics
+        ORDER BY timestamp DESC
+        LIMIT 20
+        """
+        try:
+            records = await repo.client.execute_query(
+                cypher,
+                {"days_back": days_back, "person": person, "topic": topic},
+            )
+            return serialize_response(records)
+        except Exception as e:
+            logger.error(f"recall_meetings failed: {e}")
+            return [{"error": str(e)}]
+
+    @mcp.tool()
+    async def get_daily_briefing(
+        project_id: str = "default",
+        target_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate a complete executive briefing of decisions, commitments, meetings, and topics.
+        """
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            return await consolidator.generate_daily_briefing(target_date=target_date)
+        except Exception as e:
+            logger.error(f"get_daily_briefing failed: {e}")
+            return {"error": str(e)}

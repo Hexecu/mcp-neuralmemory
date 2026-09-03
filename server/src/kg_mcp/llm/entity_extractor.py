@@ -3,7 +3,7 @@ Entity Extractor - Creates Neo4j entities from life-event analysis results.
 """
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
 from uuid import uuid4
 
 from kg_mcp.life.analysis_schema import LifeEventAnalysis
@@ -38,6 +38,9 @@ async def extract_entities_from_analysis(
         "entities": 0,
         "action_items": 0,
         "decisions": 0,
+        "commitments": 0,
+        "meetings": 0,
+        "research_insights": 0,
     }
 
     llm_client = get_llm_client()
@@ -139,18 +142,280 @@ async def extract_entities_from_analysis(
         )
         created["action_items"] += 1
 
-    if "DECISION" in event_types:
+    concept_labels = [c.label for c in analysis.concepts if c.label]
+
+    # Decisions
+    if analysis.decisions:
+        for dec in analysis.decisions:
+            await _upsert_rich_decision(repo, project_id, raw_event_id, dec, artifact_id, concept_labels)
+            created["decisions"] += 1
+    elif any(t in event_types for t in ("DECISION", "DECISION_APPROVED", "DECISION_REJECTED")):
         decision_text = None
         for snippet in analysis.visible_text_snippets:
-            if len(snippet.text) > 10:
-                decision_text = snippet.text
+            if snippet.text and len(snippet.text.strip()) >= 2:
+                decision_text = snippet.text.strip()
                 break
         if not decision_text:
             decision_text = _analysis_summary(analysis)
-        await _create_decision(repo, project_id, raw_event_id, decision_text)
+        verdict = "REJECTED" if "DECISION_REJECTED" in event_types else "APPROVED"
+        await _create_decision(repo, project_id, raw_event_id, decision_text, verdict=verdict, artifact_id=artifact_id)
         created["decisions"] += 1
 
+    # Commitments & Promises
+    if analysis.commitments:
+        for comm in analysis.commitments:
+            await _upsert_commitment(repo, project_id, raw_event_id, comm)
+            created["commitments"] = created.get("commitments", 0) + 1
+
+    # Meetings & Calls
+    if analysis.meeting_details and (analysis.meeting_details.title or analysis.meeting_details.participants):
+        await _upsert_meeting(repo, project_id, raw_event_id, analysis.meeting_details, concept_labels)
+        created["meetings"] = created.get("meetings", 0) + 1
+
+    # Research Insights
+    if analysis.research_insights:
+        for insight in analysis.research_insights:
+            await _upsert_research_insight(repo, project_id, raw_event_id, insight)
+            created["research_insights"] = created.get("research_insights", 0) + 1
+
     return created
+
+
+async def _upsert_rich_decision(
+    repo,
+    project_id: str,
+    raw_event_id: str,
+    decision,
+    artifact_id: Optional[str] = None,
+    concept_labels: Optional[List[str]] = None,
+) -> None:
+    decision_id = str(uuid4())
+    query = """
+    MATCH (p:Project {id: $project_id})
+    MATCH (re:RawEvent {id: $event_id})
+    CREATE (d:Decision {
+        id: $decision_id,
+        verdict: $verdict,
+        title: $title,
+        rationale: $rationale,
+        subject: $subject,
+        confidence: $confidence,
+        project_id: $project_id,
+        decided_at: datetime(),
+        created_at: datetime()
+    })
+    MERGE (d)-[:IN_PROJECT]->(p)
+    MERGE (d)-[:DERIVED_FROM]->(re)
+    """
+    await repo.client.execute_query(
+        query,
+        {
+            "project_id": project_id,
+            "event_id": raw_event_id,
+            "decision_id": decision_id,
+            "verdict": decision.verdict or "APPROVED",
+            "title": decision.title or decision.subject or "Decision",
+            "rationale": decision.rationale or "",
+            "subject": decision.subject or "",
+            "confidence": float(decision.confidence or 0.9),
+        }
+    )
+
+    if artifact_id:
+        await repo.client.execute_query(
+            """
+            MATCH (d:Decision {id: $decision_id})
+            MATCH (a:Artifact {id: $artifact_id})
+            MERGE (d)-[:ON_ARTIFACT]->(a)
+            """,
+            {"decision_id": decision_id, "artifact_id": artifact_id}
+        )
+
+    if decision.target_person:
+        await repo.client.execute_query(
+            """
+            MATCH (d:Decision {id: $decision_id})
+            MERGE (target:Person {name: $person_name})
+            MERGE (d)-[:TOWARDS_PERSON]->(target)
+            """,
+            {"decision_id": decision_id, "person_name": decision.target_person}
+        )
+
+    if concept_labels:
+        for label in concept_labels[:5]:
+            await repo.client.execute_query(
+                """
+                MATCH (d:Decision {id: $decision_id})
+                MATCH (t:Topic {name: $label})
+                MERGE (d)-[:ABOUT_TOPIC]->(t)
+                """,
+                {"decision_id": decision_id, "label": label}
+            )
+
+
+async def _upsert_commitment(
+    repo,
+    project_id: str,
+    raw_event_id: str,
+    commitment,
+) -> None:
+    commitment_id = str(uuid4())
+    query = """
+    MATCH (p:Project {id: $project_id})
+    MATCH (re:RawEvent {id: $event_id})
+    CREATE (c:Commitment:ActionItem {
+        id: $commitment_id,
+        title: $title,
+        task_description: $description,
+        due_date_iso: $due_date,
+        status: $status,
+        debtor: $debtor,
+        creditor: $creditor,
+        confidence: $confidence,
+        project_id: $project_id,
+        created_at: datetime()
+    })
+    MERGE (c)-[:IN_PROJECT]->(p)
+    MERGE (c)-[:DERIVED_FROM]->(re)
+    """
+    await repo.client.execute_query(
+        query,
+        {
+            "project_id": project_id,
+            "event_id": raw_event_id,
+            "commitment_id": commitment_id,
+            "title": commitment.task_description[:120],
+            "description": commitment.task_description,
+            "due_date": commitment.due_date_iso or "",
+            "status": commitment.status or "open",
+            "debtor": commitment.debtor or "user",
+            "creditor": commitment.creditor or "",
+            "confidence": float(commitment.confidence or 0.9),
+        }
+    )
+
+    if commitment.creditor and commitment.creditor.lower() != "user":
+        await repo.client.execute_query(
+            """
+            MATCH (c:Commitment {id: $commitment_id})
+            MERGE (p:Person {name: $creditor})
+            MERGE (c)-[:PROMISED_TO]->(p)
+            """,
+            {"commitment_id": commitment_id, "creditor": commitment.creditor}
+        )
+
+    if commitment.debtor and commitment.debtor.lower() != "user":
+        await repo.client.execute_query(
+            """
+            MATCH (c:Commitment {id: $commitment_id})
+            MERGE (p:Person {name: $debtor})
+            MERGE (c)-[:PROMISED_BY]->(p)
+            """,
+            {"commitment_id": commitment_id, "debtor": commitment.debtor}
+        )
+
+
+async def _upsert_meeting(
+    repo,
+    project_id: str,
+    raw_event_id: str,
+    meeting_details,
+    concept_labels: Optional[List[str]] = None,
+) -> None:
+    meeting_id = str(uuid4())
+    query = """
+    MATCH (p:Project {id: $project_id})
+    MATCH (re:RawEvent {id: $event_id})
+    CREATE (m:Meeting:ActivitySession {
+        id: $meeting_id,
+        title: $title,
+        duration: $duration,
+        project_id: $project_id,
+        timestamp: datetime(),
+        created_at: datetime()
+    })
+    MERGE (m)-[:IN_PROJECT]->(p)
+    MERGE (m)-[:RECORDED_IN]->(re)
+    """
+    await repo.client.execute_query(
+        query,
+        {
+            "project_id": project_id,
+            "event_id": raw_event_id,
+            "meeting_id": meeting_id,
+            "title": meeting_details.title or "Meeting",
+            "duration": meeting_details.duration or "",
+        }
+    )
+
+    for person_name in meeting_details.participants:
+        clean_name = person_name.strip()
+        if clean_name:
+            await repo.client.execute_query(
+                """
+                MATCH (m:Meeting {id: $meeting_id})
+                MERGE (pers:Person {name: $name})
+                MERGE (pers)-[:ATTENDED]->(m)
+                """,
+                {"meeting_id": meeting_id, "name": clean_name}
+            )
+
+    if concept_labels:
+        for label in concept_labels[:5]:
+            await repo.client.execute_query(
+                """
+                MATCH (m:Meeting {id: $meeting_id})
+                MATCH (t:Topic {name: $label})
+                MERGE (m)-[:DISCUSSED]->(t)
+                """,
+                {"meeting_id": meeting_id, "label": label}
+            )
+
+
+async def _upsert_research_insight(
+    repo,
+    project_id: str,
+    raw_event_id: str,
+    insight,
+) -> None:
+    insight_id = str(uuid4())
+    query = """
+    MATCH (p:Project {id: $project_id})
+    MATCH (re:RawEvent {id: $event_id})
+    CREATE (ins:Insight:ResearchBrief {
+        id: $insight_id,
+        topic: $topic,
+        takeaway: $takeaway,
+        source_url_or_doc: $source,
+        relevance_score: $relevance,
+        project_id: $project_id,
+        created_at: datetime()
+    })
+    MERGE (ins)-[:IN_PROJECT]->(p)
+    MERGE (ins)-[:DERIVED_FROM]->(re)
+    """
+    await repo.client.execute_query(
+        query,
+        {
+            "project_id": project_id,
+            "event_id": raw_event_id,
+            "insight_id": insight_id,
+            "topic": insight.topic or "Research",
+            "takeaway": insight.takeaway or "",
+            "source": insight.source_url_or_doc or "",
+            "relevance": float(insight.relevance_score or 0.8),
+        }
+    )
+
+    if insight.topic:
+        await repo.client.execute_query(
+            """
+            MATCH (ins:Insight {id: $insight_id})
+            MERGE (t:Topic {name: $topic})
+            MERGE (ins)-[:ABOUT_TOPIC]->(t)
+            """,
+            {"insight_id": insight_id, "topic": insight.topic}
+        )
 
 
 async def _create_decision(
@@ -158,6 +423,8 @@ async def _create_decision(
     project_id: str,
     raw_event_id: str,
     text: str,
+    verdict: str = "APPROVED",
+    artifact_id: Optional[str] = None,
 ) -> None:
     decision_id = str(uuid4())
     query = """
@@ -167,6 +434,7 @@ async def _create_decision(
         id: $decision_id,
         title: $title,
         decision: $decision,
+        verdict: $verdict,
         decided_at: datetime(),
         project_id: $project_id,
         created_at: datetime()
@@ -182,8 +450,18 @@ async def _create_decision(
             "decision_id": decision_id,
             "title": text[:120],
             "decision": text,
+            "verdict": verdict,
         }
     )
+    if artifact_id:
+        await repo.client.execute_query(
+            """
+            MATCH (d:Decision {id: $decision_id})
+            MATCH (a:Artifact {id: $artifact_id})
+            MERGE (d)-[:ON_ARTIFACT]->(a)
+            """,
+            {"decision_id": decision_id, "artifact_id": artifact_id}
+        )
 
 
 async def update_raw_event_with_analysis(

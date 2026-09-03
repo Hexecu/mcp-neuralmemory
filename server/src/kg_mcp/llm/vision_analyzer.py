@@ -337,6 +337,189 @@ async def analyze_text_content(
         )
 
 
+INTERACTION_BUNDLE_PROMPT = """You are the cognitive synthesis engine of a personal life and work memory assistant.
+The user performed an interaction block on their computer:
+
+CONTEXT:
+- Application: {app}
+- Window Title: {window}
+- Trigger Boundary: {trigger} (e.g. window_switch, enter_pressed, idle_pause)
+- Mouse / Focus Actions: {mouse_actions}
+- Keystrokes / Typed Input: {keystrokes}
+- Timestamp: {timestamp}
+
+TASK:
+Analyze what was on screen together with the user's actions and text input to deduce human intent and meaningful life/work outcomes.
+
+KEY AREAS TO EXTRACT:
+1. DECISIONS & APPROVALS:
+   Did the user express an approval, agreement, rejection, or confirmation?
+   (e.g., typing 'Ok', 'Procedi', 'Approvato', 'Confermo', clicking send/agree on an email or chat proposal).
+   Extract what was decided, the subject (quote, proposal, PR, document), and the recipient person.
+2. COMMITMENTS & PROMISES:
+   Did the user promise something with an explicit or implicit deadline (e.g., 'te lo mando entro domani', 'ci penso io')?
+   Or did someone else make a promise to the user? Extract debtor, creditor, task description, and due date.
+3. MEETINGS & CALLS:
+   If this is Google Meet, Zoom, Teams, or Slack Huddle: extract meeting title, visible participants, and main discussion topics.
+4. RESEARCH & INSIGHTS:
+   If the user is reading or searching documentation, articles, or papers: extract the primary concept and key takeaway.
+5. ARTIFACT CONTEXT:
+   What document, email, webpage, sheet, or code file is on screen?
+
+ALLOWED EVENT TYPES: {event_types}
+
+Return ONLY a valid JSON object with EXACT structure:
+{{
+  "ts": "{timestamp}",
+  "active_app": "{app}",
+  "window_title": "{window}",
+  "artifact": {{
+    "type": "email|web|doc|chat|meeting|sheet|ide|unknown",
+    "canonical_id": "string",
+    "title": "string",
+    "url_or_path": "string"
+  }},
+  "event_candidates": [
+    {{"type": "EVENT_TYPE", "confidence": 0.9}}
+  ],
+  "decisions": [
+    {{
+      "verdict": "APPROVED|REJECTED|CHOSEN|DEFERRED",
+      "title": "Short title of decision",
+      "rationale": "Reasoning from context",
+      "subject": "Topic or proposal name",
+      "target_person": "Name of recipient/counterparty if visible",
+      "confidence": 0.95
+    }}
+  ],
+  "commitments": [
+    {{
+      "debtor": "user|Counterparty Name",
+      "creditor": "Counterparty Name|user",
+      "task_description": "What was promised",
+      "due_date_iso": "YYYY-MM-DD or null",
+      "status": "open",
+      "confidence": 0.9
+    }}
+  ],
+  "research_insights": [
+    {{
+      "topic": "string",
+      "takeaway": "string",
+      "source_url_or_doc": "string",
+      "relevance_score": 0.85
+    }}
+  ],
+  "meeting_details": {{
+    "title": "string",
+    "participants": ["name1", "name2"],
+    "duration": "string"
+  }},
+  "entities": [
+    {{"kind": "person|organization|task|file|email", "value": "string", "role": "string", "confidence": 0.9}}
+  ],
+  "concepts": [
+    {{"label": "string", "confidence": 0.85}}
+  ],
+  "visible_text_snippets": [
+    {{"text": "string", "source": "string", "confidence": 0.9}}
+  ]
+}}
+"""
+
+
+async def analyze_interaction_bundle(
+    app: str,
+    window: str,
+    keystrokes_typed: str,
+    mouse_actions: list[str],
+    trigger_reason: str,
+    screenshot_base64: Optional[str] = None,
+    model: Optional[str] = None,
+) -> LifeEventAnalysis:
+    """
+    Analyze a multimodal interaction bundle combining screen, mouse, and typing.
+    """
+    settings = get_settings()
+    if model is None:
+        model = settings.litellm_model if settings.llm_mode == "litellm" else settings.gemini_model
+        model = model or settings.llm_model
+
+    timestamp = datetime.now().isoformat()
+    prompt = INTERACTION_BUNDLE_PROMPT.format(
+        app=app or "Unknown",
+        window=window or "(no title)",
+        trigger=trigger_reason or "window_switch",
+        mouse_actions=", ".join(mouse_actions) if mouse_actions else "none",
+        keystrokes=keystrokes_typed or "(none)",
+        timestamp=timestamp,
+        event_types=EVENT_TYPE_LIST,
+    )
+
+    try:
+        messages = []
+        if screenshot_base64:
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{screenshot_base64}"},
+                    },
+                ],
+            })
+        else:
+            messages.append({"role": "user", "content": prompt})
+
+        completion_kwargs = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": 2000,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+        }
+
+        if settings.llm_mode == "litellm" and settings.litellm_base_url:
+            completion_kwargs["api_base"] = settings.litellm_base_url
+            completion_kwargs["api_key"] = settings.litellm_api_key
+            completion_kwargs["custom_llm_provider"] = "openai"
+        elif settings.gemini_api_key:
+            completion_kwargs["api_key"] = settings.gemini_api_key
+
+        response = await acompletion(**completion_kwargs)
+        raw_text = response.choices[0].message.content or ""
+
+        json_text = raw_text
+        if "```json" in raw_text:
+            import re
+            match = re.search(r"```json\s*([\s\S]*?)```", raw_text)
+            if match:
+                json_text = match.group(1)
+        if "{" in json_text:
+            start = json_text.find("{")
+            end = json_text.rfind("}")
+            if start != -1 and end != -1:
+                json_text = json_text[start:end + 1]
+
+        try:
+            data = json.loads(json_text.strip())
+        except Exception:
+            import re
+            cleaned = re.sub(r',\s*([\]}])', r'\1', json_text.strip())
+            data = json.loads(cleaned)
+        return _coerce_analysis(data, app, window, timestamp)
+
+    except Exception as e:
+        logger.error(f"Interaction bundle analysis failed: {e}")
+        return LifeEventAnalysis(
+            ts=timestamp,
+            active_app=app,
+            window_title=window,
+            event_candidates=[EventCandidate(type="IDLE", confidence=1.0)],
+        )
+
+
 def analysis_to_dict(analysis: LifeEventAnalysis) -> dict:
     """Convert LifeEventAnalysis to dict for storage."""
     return analysis.model_dump()

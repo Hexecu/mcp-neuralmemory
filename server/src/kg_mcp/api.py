@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from kg_mcp import __version__
 from kg_mcp.config import get_settings
 from kg_mcp.kg.repo import KGRepository, get_repository
+from kg_mcp.life.analysis_schema import InteractionBundleIn
+from kg_mcp.services.privacy_shield import PrivacyShield
 from kg_mcp.utils import serialize_response
 
 logger = logging.getLogger(__name__)
@@ -130,6 +132,28 @@ async def _process_text(repo: KGRepository, payload: EventIn, event_id: str) -> 
         logger.exception("Optional text enrichment failed for event %s", event_id)
 
 
+async def _process_bundle(repo: KGRepository, payload: InteractionBundleIn, event_id: str) -> None:
+    from kg_mcp.llm.entity_extractor import (
+        extract_entities_from_analysis,
+        update_raw_event_with_analysis,
+    )
+    from kg_mcp.llm.vision_analyzer import analyze_interaction_bundle
+
+    try:
+        analysis = await analyze_interaction_bundle(
+            app=payload.app,
+            window=payload.window_title,
+            keystrokes_typed=payload.keystrokes_typed or "",
+            mouse_actions=payload.mouse_actions or [],
+            trigger_reason=payload.trigger_reason or "window_switch",
+            screenshot_base64=payload.screenshot_base64,
+        )
+        await update_raw_event_with_analysis(repo, event_id, analysis)
+        await extract_entities_from_analysis(repo, payload.project_id, event_id, analysis)
+    except Exception:
+        logger.exception("Bundle enrichment failed for event %s", event_id)
+
+
 def create_api_app(
     repository_factory: Callable[[], KGRepository] = get_repository,
     *,
@@ -231,9 +255,48 @@ def create_api_app(
             elif (
                 payload.event_type == "keystroke_buffer"
                 and payload.text_content
-                and len(payload.text_content) > 10
+                and len(payload.text_content.strip()) >= 2
             ):
                 background.add_task(_process_text, repo, payload, event_id)
+        return serialize_response(result)
+
+    @app.post("/api/ingest/bundle", dependencies=[Depends(require_token)])
+    async def ingest_bundle(
+        payload: InteractionBundleIn,
+        background: BackgroundTasks,
+    ) -> dict[str, Any]:
+        if PrivacyShield.is_sensitive_context(payload.app, payload.window_title):
+            return {"status": "ignored", "reason": "sensitive_private_context"}
+
+        repo = repository_factory()
+        sanitized_text = PrivacyShield.sanitize_text(payload.keystrokes_typed or "")
+
+        data = {
+            "app": payload.app,
+            "window": payload.window_title,
+            "mouse_actions": payload.mouse_actions,
+            "trigger_reason": payload.trigger_reason,
+            "has_screenshot": bool(payload.screenshot_base64),
+        }
+
+        try:
+            result = await repo.upsert_raw_event(
+                project_id=payload.project_id,
+                event_type="interaction_bundle",
+                timestamp=payload.timestamp or datetime.now(timezone.utc),
+                data=data,
+                text_content=sanitized_text,
+                is_duplicate=False,
+            )
+        except Exception:
+            logger.exception("Bundle ingestion failed")
+            raise HTTPException(status_code=503, detail="Memory store is unavailable") from None
+
+        event_id = str(result.get("id", ""))
+        if get_settings().llm_enabled:
+            payload.keystrokes_typed = sanitized_text
+            background.add_task(_process_bundle, repo, payload, event_id)
+
         return serialize_response(result)
 
     @app.post("/api/ingest/slice", dependencies=[Depends(require_token)])
@@ -265,5 +328,42 @@ def create_api_app(
             raise HTTPException(
                 status_code=503, detail="Search is temporarily unavailable"
             ) from None
+
+    @app.post("/api/memory/consolidate", dependencies=[Depends(require_token)])
+    async def consolidate_memory(
+        project_id: str = "default", retention_days: int = 2
+    ) -> dict[str, Any]:
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            pruned = await consolidator.prune_ephemeral_events(retention_days=retention_days)
+            deduped = await consolidator.deduplicate_topics()
+            return {"status": "ok", "pruned_events": pruned, "deduped_topics": deduped}
+        except Exception:
+            logger.exception("Memory consolidation failed")
+            raise HTTPException(status_code=500, detail="Consolidation failed") from None
+
+    @app.get("/api/memory/briefing", dependencies=[Depends(require_token)])
+    async def get_briefing(project_id: str = "default", date: str | None = None) -> dict[str, Any]:
+        from kg_mcp.services.consolidator import MemoryConsolidator
+
+        try:
+            consolidator = MemoryConsolidator(project_id=project_id)
+            return await consolidator.generate_daily_briefing(target_date=date)
+        except Exception:
+            logger.exception("Daily briefing generation failed")
+            raise HTTPException(status_code=500, detail="Briefing generation failed") from None
+
+    @app.get("/api/config", dependencies=[Depends(require_token)])
+    async def get_config() -> dict[str, Any]:
+        settings = get_settings()
+        return serialize_response({
+            "llm_enabled": settings.llm_enabled,
+            "llm_mode": settings.llm_mode,
+            "litellm_model": settings.litellm_model,
+            "gemini_model": settings.gemini_model,
+            "mcp_port": settings.mcp_port,
+        })
 
     return app

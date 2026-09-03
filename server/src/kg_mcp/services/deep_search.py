@@ -288,6 +288,10 @@ class DeepSearchService:
         dt = self._to_datetime(ts)
         if not dt:
             return 0.0
+        if now.tzinfo is not None:
+            now = now.replace(tzinfo=None)
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
         delta_days = max((now - dt).total_seconds() / 86400.0, 0.0)
         return math.exp(-delta_days / 7.0)
 

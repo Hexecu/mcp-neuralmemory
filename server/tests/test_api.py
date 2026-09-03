@@ -214,3 +214,96 @@ def test_storage_errors_do_not_leak_internal_details(monkeypatch):
     assert response.status_code == 503
     assert response.json() == {"detail": "Memory store is unavailable"}
     assert "database details" not in response.text
+
+
+def test_ingest_interaction_bundle_success(monkeypatch):
+    http, repository = client(monkeypatch)
+    response = http.post(
+        "/api/ingest/bundle",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "project_id": "test-project",
+            "app": "Mail",
+            "window_title": "Re: Preventivo Cloud - Marco Rossi",
+            "keystrokes_typed": "Ok procedi pure con la proposta",
+            "mouse_actions": ["clicked_reply"],
+            "trigger_reason": "enter_pressed",
+        },
+    )
+    assert response.status_code == 200
+    assert len(repository.events) == 1
+    event = repository.events[0]
+    assert event["event_type"] == "interaction_bundle"
+    assert event["text_content"] == "Ok procedi pure con la proposta"
+    assert event["data"]["app"] == "Mail"
+    assert event["data"]["trigger_reason"] == "enter_pressed"
+
+
+def test_ingest_bundle_sensitive_context_ignored(monkeypatch):
+    http, repository = client(monkeypatch)
+    response = http.post(
+        "/api/ingest/bundle",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "project_id": "test-project",
+            "app": "1Password",
+            "window_title": "Master Password Vault",
+            "keystrokes_typed": "supersecretpassword",
+            "trigger_reason": "window_switch",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ignored", "reason": "sensitive_private_context"}
+    assert len(repository.events) == 0
+
+
+def test_ingest_bundle_sanitizes_pii_and_secrets(monkeypatch):
+    http, repository = client(monkeypatch)
+    response = http.post(
+        "/api/ingest/bundle",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "project_id": "test-project",
+            "app": "Slack",
+            "window_title": "#dev",
+            "keystrokes_typed": (
+                "Ecco la key sk-123456789012345678901234 e IBAN IT60X0542811101000000123456"
+            ),
+            "trigger_reason": "enter_pressed",
+        },
+    )
+    assert response.status_code == 200
+    assert len(repository.events) == 1
+    sanitized = repository.events[0]["text_content"]
+    assert "[REDACTED_API_KEY]" in sanitized
+    assert "[REDACTED_IBAN]" in sanitized
+    assert "sk-1234567890" not in sanitized
+
+
+def test_ingest_event_short_keystroke_accepted(monkeypatch):
+    http, repository = client(monkeypatch)
+    response = http.post(
+        "/api/ingest/event",
+        headers={"Authorization": "Bearer test-token"},
+        json={
+            "event_type": "keystroke_buffer",
+            "text_content": "Ok",
+            "data": {"app": "Mail", "window": "Re: Proposta"},
+        },
+    )
+    assert response.status_code == 200
+    assert len(repository.events) == 1
+    assert repository.events[0]["text_content"] == "Ok"
+
+
+def test_config_endpoint(monkeypatch):
+    http, _ = client(monkeypatch)
+    response = http.get(
+        "/api/config",
+        headers={"Authorization": "Bearer test-token"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "llm_enabled" in data
+    assert "llm_mode" in data
+

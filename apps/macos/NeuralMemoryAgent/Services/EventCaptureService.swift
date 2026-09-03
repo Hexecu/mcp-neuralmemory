@@ -137,34 +137,44 @@ class EventCaptureService: ObservableObject {
     }
 
     private func flushKeystrokeBuffer() {
+        flushInteractionBundle(trigger: "idle_pause")
+    }
+
+    private func flushInteractionBundle(trigger: String = "idle_pause") {
         guard !keystrokeBuffer.isEmpty, !isPaused, !isPrivateMode else { return }
 
-        let bufferText = keystrokeBuffer
-        let bufferSize = bufferText.count
+        let text = keystrokeBuffer
+        let app = lastActiveApp ?? "Unknown"
+        let window = lastActiveWindow ?? ""
 
-        Task {
-            let event = CapturedEvent(
-                type: "keystroke_buffer",
-                timestamp: Date(),
-                data: [
-                    "buffer_size": "\(bufferSize)",
-                    "app": lastActiveApp ?? "Unknown"
-                ],
-                textContent: bufferText,
-                screenshotBase64: nil
+        keystrokeBuffer = ""
+
+        Task { @MainActor in
+            var screenshotB64: String? = nil
+            if self.capturesScreenshots {
+                if #available(macOS 14.0, *) {
+                    screenshotB64 = await self.captureScreenshot()
+                }
+            }
+
+            let appState = AppState.shared
+            let payload = InteractionBundlePayload(
+                project_id: appState.projectID,
+                timestamp: ISO8601DateFormatter().string(from: Date()),
+                app: app,
+                window_title: window,
+                screenshot_base64: screenshotB64,
+                keystrokes_typed: text,
+                mouse_actions: [trigger],
+                trigger_reason: trigger
             )
 
             do {
-                try await APIClient.shared.sendEvent(event)
-                print("Keystroke buffer sent: \(bufferSize) characters")
+                try await APIClient.shared.sendBundle(payload)
+                print("Interaction bundle sent (\(trigger)): \(text.count) characters")
             } catch {
-                print("Failed to send keystroke event: \(error.localizedDescription)")
+                print("Failed to send interaction bundle: \(error.localizedDescription)")
             }
-        }
-
-        // Clear buffer
-        DispatchQueue.main.async {
-            self.keystrokeBuffer = ""
         }
     }
 
@@ -175,6 +185,11 @@ class EventCaptureService: ObservableObject {
             if !keystrokeBuffer.isEmpty {
                 keystrokeBuffer.removeLast()
             }
+            return
+        }
+
+        if event.keyCode == UInt16(kVK_Return) {
+            flushInteractionBundle(trigger: "enter_pressed")
             return
         }
 
@@ -233,6 +248,10 @@ class EventCaptureService: ObservableObject {
 
         // Only capture if app or window changed
         if appName != lastActiveApp || windowTitle != lastActiveWindow {
+            if !keystrokeBuffer.isEmpty {
+                flushInteractionBundle(trigger: "window_switch")
+            }
+
             lastActiveApp = appName
             lastActiveWindow = windowTitle
 

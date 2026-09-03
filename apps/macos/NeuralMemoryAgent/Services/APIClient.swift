@@ -65,6 +65,32 @@ actor APIClient {
         await appState.incrementEventCount()
     }
 
+    func sendBundle(_ bundle: InteractionBundlePayload) async throws {
+        let appState = await AppState.shared
+        guard let url = URL(string: await appState.serverURL + "/api/ingest/bundle") else {
+            throw APIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(
+            try Self.authorizationHeader(token: await appState.apiToken),
+            forHTTPHeaderField: "Authorization"
+        )
+
+        request.httpBody = try JSONEncoder().encode(bundle)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw APIError.serverError(status: httpResponse.statusCode, body: String(data: data, encoding: .utf8))
+        }
+        await appState.incrementEventCount()
+    }
+
     static func isNeuralMemoryHealthResponse(data: Data, statusCode: Int) -> Bool {
         guard statusCode == 200,
               let health = try? JSONDecoder().decode(HealthResponse.self, from: data) else { return false }
@@ -99,6 +125,17 @@ struct EventPayload: Encodable {
     let data: [String: String]
     let text_content: String?
     let screenshot_base64: String?
+}
+
+struct InteractionBundlePayload: Encodable {
+    let project_id: String
+    let timestamp: String
+    let app: String
+    let window_title: String
+    let screenshot_base64: String?
+    let keystrokes_typed: String
+    let mouse_actions: [String]
+    let trigger_reason: String
 }
 
 enum APIError: Error, LocalizedError {
