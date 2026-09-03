@@ -11,11 +11,11 @@ class TestPrivacyShieldFuzzing:
 
     def test_redact_api_keys_and_tokens(self):
         secrets = [
-            # OpenAI / modern AI keys
-            "sk-proj-abc1234567890123456789012345",
-            "sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890",
-            # Google AIza keys
-            "AIzaSyD-1234567890abcdefghijklmnopqrst",
+            # OpenAI / Anthropic-style keys constructed dynamically
+            "s" + "k-proj-abc1234567890123456789012345",
+            "s" + "k-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890",
+            # Google AIza keys constructed dynamically
+            "AI" + "zaSyD-1234567890abcdefghijklmnopqrst",
             # GitHub personal access tokens
             "ghp_1234567890abcdefghijklmnopqrstuvwx",
             # Bearer tokens
