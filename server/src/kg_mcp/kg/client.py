@@ -27,12 +27,25 @@ class Neo4jClient:
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    def __init__(self):
+        """Initialize the client."""
+        self._driver: Optional[AsyncDriver] = None
+        self.use_embedded: bool = False
+        self.sqlite_store: Any = None
+
     async def connect(self) -> None:
-        """Initialize the Neo4j driver connection."""
-        if self._driver is not None:
+        """Establish connection to Neo4j, or fallback to Embedded SQLite."""
+        import os
+        settings = get_settings()
+
+        # Check if embedded is forced or credentials are not provided
+        if not settings.neo4j_password or os.environ.get("USE_EMBEDDED_STORE", "").lower() in ("1", "true"):
+            self.use_embedded = True
+            from kg_mcp.kg.sqlite_store import get_sqlite_store
+            self.sqlite_store = get_sqlite_store()
+            logger.info("Operating in standalone Embedded Local Graph mode (SQLite: %s)", self.sqlite_store.db_path)
             return
 
-        settings = get_settings()
         try:
             self._driver = AsyncGraphDatabase.driver(
                 settings.neo4j_uri,
@@ -43,13 +56,17 @@ class Neo4jClient:
             )
             # Verify connectivity
             await self._driver.verify_connectivity()
-            logger.info(f"Connected to Neo4j at {settings.neo4j_uri}")
-        except ServiceUnavailable as e:
-            logger.error(f"Failed to connect to Neo4j: {e}")
-            raise
+            self.use_embedded = False
+            logger.info(f"Connected to Open Local Neo4j at {settings.neo4j_uri}")
+        except Exception as e:
+            logger.warning("Neo4j connection unavailable (%s). Falling back to Embedded SQLite.", e)
+            self.use_embedded = True
+            from kg_mcp.kg.sqlite_store import get_sqlite_store
+            self.sqlite_store = get_sqlite_store()
+            logger.info("Operating in standalone Embedded Local Graph mode (SQLite: %s)", self.sqlite_store.db_path)
 
     async def close(self) -> None:
-        """Close the Neo4j driver connection."""
+        """Close driver or embedded resources."""
         if self._driver is not None:
             await self._driver.close()
             self._driver = None

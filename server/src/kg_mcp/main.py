@@ -29,9 +29,6 @@ def setup_logging(transport: str) -> logging.Logger:
 
 @asynccontextmanager
 async def http_lifespan(app):
-    settings = get_settings()
-    if not settings.neo4j_password:
-        raise RuntimeError("NEO4J_PASSWORD is required. Run ./scripts/bootstrap.sh.")
     await init_neo4j()
     try:
         yield

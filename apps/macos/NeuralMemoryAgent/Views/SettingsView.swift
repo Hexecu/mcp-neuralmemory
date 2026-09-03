@@ -147,6 +147,36 @@ struct SettingsView: View {
                 }
 
                 HStack {
+                    Text("Storage Mode:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if appState.storageMode == "embedded_sqlite" {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.green).frame(width: 7, height: 7)
+                            Text("Embedded SQLite (Standalone)")
+                                .font(.caption.bold())
+                                .foregroundColor(.green)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.green.opacity(0.12))
+                        .clipShape(Capsule())
+                    } else {
+                        HStack(spacing: 4) {
+                            Circle().fill(Color.blue).frame(width: 7, height: 7)
+                            Text("Open Local (Neo4j / Docker)")
+                                .font(.caption.bold())
+                                .foregroundColor(.blue)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.blue.opacity(0.12))
+                        .clipShape(Capsule())
+                    }
+                }
+
+                HStack {
                     Text("Neo4j Database:")
                         .font(.caption)
                         .foregroundColor(.secondary)

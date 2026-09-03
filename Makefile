@@ -1,4 +1,4 @@
-.PHONY: help setup up down logs doctor test test-massive e2e lint macos mcp
+.PHONY: help setup up down logs doctor test test-massive e2e lint macos package verify-clean mcp
 
 help:
 	@echo "Neural Memory"
@@ -6,6 +6,8 @@ help:
 	@echo "  make doctor       Check the local installation"
 	@echo "  make test         Run backend regression tests"
 	@echo "  make test-massive Run comprehensive massive stress, chaos, scale & UI E2E suite"
+	@echo "  make package      Build standalone DMG installer (Zero Docker, Zero Prerequisites)"
+	@echo "  make verify-clean Test standalone app in simulated clean environment"
 	@echo "  make e2e          Run end-to-end integration tests"
 	@echo "  make macos        Build the native macOS client"
 	@echo "  make mcp          Configure MCP for Claude Desktop and Cursor"
@@ -48,6 +50,12 @@ e2e:
 
 lint:
 	cd server && ruff check src/kg_mcp/api.py src/kg_mcp/config.py src/kg_mcp/main.py src/kg_mcp/image_hash.py src/kg_mcp/mcp/life_tools.py tests/test_api.py tests/test_scoring.py
+
+package:
+	./scripts/package_installer.sh
+
+verify-clean:
+	./scripts/verify_clean_environment.sh
 
 macos:
 	cd apps/macos && ./bundle_app.sh

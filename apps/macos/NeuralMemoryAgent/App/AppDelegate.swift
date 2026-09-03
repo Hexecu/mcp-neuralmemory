@@ -31,6 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Cleanup
         EventCaptureService.shared.stop()
+        EmbeddedDaemonManager.shared.stop()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -115,6 +116,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startServicesIfEnabled() async {
+        await EmbeddedDaemonManager.shared.ensureDaemonRunning()
         await EventCaptureService.shared.start()
         await APIClient.shared.checkConnection()
     }

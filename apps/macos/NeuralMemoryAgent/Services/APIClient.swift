@@ -25,6 +25,21 @@ actor APIClient {
                 return
             }
             await appState.updateConnectionStatus(true)
+
+            // Also check /api/config for storage mode
+            if let configURL = URL(string: await appState.serverURL + "/api/config") {
+                var configReq = URLRequest(url: configURL)
+                if let token = try? Self.authorizationHeader(token: await appState.apiToken) {
+                    configReq.setValue(token, forHTTPHeaderField: "Authorization")
+                }
+                if let (cData, _) = try? await session.data(for: configReq),
+                   let json = try? JSONSerialization.jsonObject(with: cData) as? [String: Any],
+                   let mode = json["storage_mode"] as? String {
+                    await MainActor.run {
+                        appState.storageMode = mode
+                    }
+                }
+            }
         } catch {
             await appState.updateConnectionStatus(false)
         }

@@ -25,6 +25,9 @@ class KGRepository:
 
     async def get_or_create_project(self, project_id: str, name: Optional[str] = None) -> Dict[str, Any]:
         """Get or create a project node."""
+        if self.client.use_embedded:
+            return self.client.sqlite_store.get_or_create_project(project_id, name)
+
         query = """
         MERGE (p:Project {id: $project_id})
         ON CREATE SET
@@ -453,6 +456,19 @@ class KGRepository:
         duplicate_of: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Upsert a raw event node."""
+        if self.client.use_embedded:
+            res = self.client.sqlite_store.upsert_raw_event(
+                project_id=project_id,
+                event_type=event_type,
+                timestamp=timestamp,
+                data=data,
+                text_content=text_content,
+                screenshot_hash=screenshot_hash,
+                is_duplicate=is_duplicate,
+                duplicate_of=duplicate_of,
+            )
+            return {"event": res, **res}
+
         event_id = str(uuid4())
         # Ensure timestamp is ISO formatted string for Neo4j if passing as string,
         # but the driver handles datetime objects well in parameters usually.
@@ -586,6 +602,16 @@ class KGRepository:
         segment_kind: str = "semantic",
     ) -> Dict[str, Any]:
         """Upsert an activity slice."""
+        if self.client.use_embedded:
+            res = self.client.sqlite_store.upsert_activity_slice(
+                project_id=project_id,
+                start_time=start_time,
+                end_time=end_time,
+                summary=summary,
+                event_ids=event_ids,
+            )
+            return {"slice": res, **res}
+
         slice_id = str(uuid4())
         query = """
         MATCH (p:Project {id: $project_id})
@@ -936,6 +962,9 @@ class KGRepository:
         project_id: str,
     ) -> Optional[Dict[str, Any]]:
         """Fetch the most recent RawEvent with a screenshot hash."""
+        if self.client.use_embedded:
+            return self.client.sqlite_store.get_last_screenshot_event(project_id)
+
         query = """
         MATCH (re:RawEvent {project_id: $project_id})
         WHERE re.screenshot_hash IS NOT NULL AND (re.is_duplicate IS NULL OR re.is_duplicate = false)

@@ -314,8 +314,23 @@ def create_api_app(
             logger.exception("Slice ingestion failed")
             raise HTTPException(status_code=503, detail="Memory store is unavailable") from None
 
+    def is_embedded(r: Any) -> bool:
+        return getattr(getattr(r, "client", None), "use_embedded", False)
+
     @app.post("/api/search/deep", dependencies=[Depends(require_token)])
     async def deep_search(payload: DeepSearchIn) -> Any:
+        repo = repository_factory()
+        if is_embedded(repo):
+            matched = repo.client.sqlite_store.search(
+                query=payload.query, limit=payload.limit, project_id=payload.project_id
+            )
+            return {
+                "query": payload.query,
+                "results": matched,
+                "related": {"episodes": [], "artifacts": [], "concepts": []},
+                "open_loops": [],
+            }
+
         from kg_mcp.services.deep_search import DeepSearchService
 
         try:
@@ -333,6 +348,11 @@ def create_api_app(
     async def consolidate_memory(
         project_id: str = "default", retention_days: int = 2, run_dream: bool = False
     ) -> dict[str, Any]:
+        repo = repository_factory()
+        if is_embedded(repo):
+            pruned = repo.client.sqlite_store.prune_events(retention_days=retention_days)
+            return {"status": "ok", "pruned_events": pruned, "deduped_topics": 0}
+
         from kg_mcp.services.consolidator import MemoryConsolidator
 
         try:
@@ -349,6 +369,10 @@ def create_api_app(
 
     @app.post("/api/memory/dream", dependencies=[Depends(require_token)])
     async def run_dream_cycle(project_id: str = "default") -> dict[str, Any]:
+        repo = repository_factory()
+        if is_embedded(repo):
+            return {"status": "ok", "mode": "embedded_sqlite", "reflections_created": 0}
+
         from kg_mcp.services.consolidator import MemoryConsolidator
 
         try:
@@ -365,6 +389,10 @@ def create_api_app(
         topic: str | None = None,
         limit: int = 10,
     ) -> list[dict[str, Any]]:
+        repo = repository_factory()
+        if is_embedded(repo):
+            return []
+
         from kg_mcp.services.consolidator import MemoryConsolidator
 
         try:
@@ -378,6 +406,10 @@ def create_api_app(
 
     @app.get("/api/memory/briefing", dependencies=[Depends(require_token)])
     async def get_briefing(project_id: str = "default", date: str | None = None) -> dict[str, Any]:
+        repo = repository_factory()
+        if is_embedded(repo):
+            return {"date": date, "mode": "embedded_sqlite", "decisions": [], "commitments": []}
+
         from kg_mcp.services.consolidator import MemoryConsolidator
 
         try:
@@ -389,19 +421,29 @@ def create_api_app(
 
     @app.get("/api/config", dependencies=[Depends(require_token)])
     async def get_config() -> dict[str, Any]:
+        repo = repository_factory()
         settings = get_settings()
+        storage_mode = "embedded_sqlite" if is_embedded(repo) else "open_local_neo4j"
         return serialize_response({
             "llm_enabled": settings.llm_enabled,
             "llm_mode": settings.llm_mode,
             "litellm_model": settings.litellm_model,
             "gemini_model": settings.gemini_model,
             "mcp_port": settings.mcp_port,
+            "storage_mode": storage_mode,
         })
 
     @app.get("/graph", response_class=HTMLResponse)
     async def get_graph_page() -> str:
+        import sys
         from pathlib import Path
-        html_path = Path(__file__).parent / "web" / "graph.html"
+
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            html_path = Path(sys._MEIPASS) / "kg_mcp" / "web" / "graph.html"
+            if not html_path.exists():
+                html_path = Path(sys._MEIPASS) / "web" / "graph.html"
+        else:
+            html_path = Path(__file__).parent / "web" / "graph.html"
         if html_path.exists():
             return html_path.read_text(encoding="utf-8")
         return "<h1>Graph Visualizer not found</h1>"
@@ -413,6 +455,11 @@ def create_api_app(
         until: datetime | None = None,
     ) -> dict[str, Any]:
         repository = get_repository()
+        if is_embedded(repository):
+            return repository.client.sqlite_store.get_graph_data(
+                project_id=project_id, since=since, until=until
+            )
+
         query = """
         MATCH (n)
         WHERE n:Decision OR n:Commitment OR n:Meeting OR n:Reflection
