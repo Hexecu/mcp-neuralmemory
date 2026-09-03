@@ -11,7 +11,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         Task { @MainActor in
-            self.showDashboardWindow()
+            if CommandLine.arguments.contains("--graph") {
+                self.showGraphWindow()
+            } else {
+                self.showDashboardWindow()
+            }
         }
 
         // Show onboarding if first launch
@@ -54,6 +58,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             dashboardWindow = window
         }
         dashboardWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private var graphWindow: NSWindow?
+
+    @MainActor
+    func showGraphWindow() {
+        if graphWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1050, height: 720),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            window.minSize = NSSize(width: 800, height: 550)
+            window.center()
+            window.title = "Neural Memory — Knowledge Graph"
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isMovableByWindowBackground = true
+            window.contentView = NSHostingView(
+                rootView: GraphView().environmentObject(AppState.shared)
+            )
+            graphWindow = window
+        }
+        graphWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

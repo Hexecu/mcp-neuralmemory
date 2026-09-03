@@ -135,8 +135,10 @@ struct MenuBarView: View {
     }
 
     private func openGraphVisualizer() {
-        if let url = URL(string: appState.serverURL + "/graph") {
-            NSWorkspace.shared.open(url)
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            Task { @MainActor in
+                appDelegate.showGraphWindow()
+            }
         }
     }
 }
