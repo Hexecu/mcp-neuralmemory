@@ -172,6 +172,51 @@ def _coerce_analysis(data: dict, app: str, window: str, timestamp: str) -> LifeE
     return analysis
 
 
+def _robust_json_loads(text: str) -> dict:
+    """Parse JSON resiliently, repairing missing commas, trailing commas, and escapes."""
+    import re
+    cleaned = text.strip()
+    if "```json" in cleaned:
+        m = re.search(r"```json\s*([\s\S]*?)```", cleaned)
+        if m:
+            cleaned = m.group(1).strip()
+    elif "```" in cleaned:
+        m = re.search(r"```\s*([\s\S]*?)```", cleaned)
+        if m:
+            cleaned = m.group(1).strip()
+    if "{" in cleaned:
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1:
+            cleaned = cleaned[start:end + 1]
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    # 1. Remove trailing commas before } or ]
+    repaired = re.sub(r',\s*([\]}])', r'\1', cleaned)
+    # 2. Insert missing comma between adjacent properties (e.g. "val"\n"key" or 0.9\n"key")
+    repaired = re.sub(
+        r'([0-9]|true|false|null|[\"\]}])\s*\n\s*(\"[a-zA-Z0-9_]+\"\s*:)',
+        r'\1,\n\2',
+        repaired,
+    )
+    # 3. Insert missing comma between adjacent objects or arrays
+    repaired = re.sub(r'}\s*\n\s*{', r'},\n{', repaired)
+    repaired = re.sub(r']\s*\n\s*\[', r'],\n[', repaired)
+
+    try:
+        return json.loads(repaired)
+    except Exception:
+        pass
+
+    # 4. Escape stray backslashes
+    escaped = re.sub(r'\\(?![/u"bfnrt\\])', r'\\\\', repaired)
+    return json.loads(escaped)
+
+
 async def analyze_screenshot(
     screenshot_base64: str,
     app: str,
@@ -236,24 +281,7 @@ async def analyze_screenshot(
         response = await acompletion(**completion_kwargs)
         raw_text = response.choices[0].message.content or ""
 
-        json_text = raw_text
-        if "```json" in raw_text:
-            import re
-            match = re.search(r"```json\s*([\s\S]*?)```", raw_text)
-            if match:
-                json_text = match.group(1)
-        if "{" in json_text:
-            start = json_text.find("{")
-            end = json_text.rfind("}")
-            if start != -1 and end != -1:
-                json_text = json_text[start:end + 1]
-
-        try:
-            data = json.loads(json_text.strip())
-        except Exception:
-            import re
-            cleaned = re.sub(r',\s*([\]}])', r'\1', json_text.strip())
-            data = json.loads(cleaned)
+        data = _robust_json_loads(raw_text)
         return _coerce_analysis(data, app, window, timestamp)
 
     except Exception as e:
@@ -307,24 +335,7 @@ async def analyze_text_content(
         response = await acompletion(**completion_kwargs)
         raw_text = response.choices[0].message.content or ""
 
-        json_text = raw_text
-        if "```json" in raw_text:
-            import re
-            match = re.search(r"```json\s*([\s\S]*?)```", raw_text)
-            if match:
-                json_text = match.group(1)
-        if "{" in json_text:
-            start = json_text.find("{")
-            end = json_text.rfind("}")
-            if start != -1 and end != -1:
-                json_text = json_text[start:end + 1]
-
-        try:
-            data = json.loads(json_text.strip())
-        except Exception:
-            import re
-            cleaned = re.sub(r',\s*([\]}])', r'\1', json_text.strip())
-            data = json.loads(cleaned)
+        data = _robust_json_loads(raw_text)
         return _coerce_analysis(data, app, "", timestamp)
 
     except Exception as e:
@@ -490,24 +501,7 @@ async def analyze_interaction_bundle(
         response = await acompletion(**completion_kwargs)
         raw_text = response.choices[0].message.content or ""
 
-        json_text = raw_text
-        if "```json" in raw_text:
-            import re
-            match = re.search(r"```json\s*([\s\S]*?)```", raw_text)
-            if match:
-                json_text = match.group(1)
-        if "{" in json_text:
-            start = json_text.find("{")
-            end = json_text.rfind("}")
-            if start != -1 and end != -1:
-                json_text = json_text[start:end + 1]
-
-        try:
-            data = json.loads(json_text.strip())
-        except Exception:
-            import re
-            cleaned = re.sub(r',\s*([\]}])', r'\1', json_text.strip())
-            data = json.loads(cleaned)
+        data = _robust_json_loads(raw_text)
         return _coerce_analysis(data, app, window, timestamp)
 
     except Exception as e:
