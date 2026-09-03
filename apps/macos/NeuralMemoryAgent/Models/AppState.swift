@@ -25,21 +25,16 @@ class AppState: ObservableObject {
     @Published var storageMode: String = "detecting"
 
     private init() {
-        if let storedToken = KeychainStore.loadToken(), !storedToken.isEmpty {
-            apiToken = storedToken
+        let localTokenURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/NeuralMemory/token.txt")
+        if let fileToken = try? String(contentsOf: localTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !fileToken.isEmpty {
+            apiToken = fileToken
         } else if let legacyToken = UserDefaults.standard.string(forKey: "apiToken"), !legacyToken.isEmpty {
             apiToken = legacyToken
-            KeychainStore.saveToken(legacyToken)
-            UserDefaults.standard.removeObject(forKey: "apiToken")
+        } else if let storedToken = KeychainStore.loadToken(), !storedToken.isEmpty {
+            apiToken = storedToken
         } else {
-            let localTokenURL = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/NeuralMemory/token.txt")
-            if let fileToken = try? String(contentsOf: localTokenURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), !fileToken.isEmpty {
-                apiToken = fileToken
-                KeychainStore.saveToken(fileToken)
-            } else {
-                apiToken = ""
-            }
+            apiToken = ""
         }
     }
 

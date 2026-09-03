@@ -2,6 +2,10 @@
 
 Neural Memory includes a specialized **Temporal Property Graph Visualizer** built natively in SwiftUI, accompanied by an interactive D3.js/SVG fallback viewer. It is engineered specifically to represent chronological progression, semantic relationships, and memory retention dynamics over time.
 
+<p align="center">
+  <img src="assets/images/temporal_graph_canvas.png" width="940" alt="Temporal Knowledge Graph Canvas" style="border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+</p>
+
 ---
 
 ## 1. Visual Layout Modes

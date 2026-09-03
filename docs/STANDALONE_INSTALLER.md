@@ -24,17 +24,29 @@ Neural Memory provides an enterprise-ready, standalone **Drag-and-Drop macOS DMG
 
 ---
 
-## 2. macOS System Permissions Setup
+## 2. Interactive Permissions Setup Wizard
 
-To enable contextual memory assistance, Neural Memory requests standard macOS privacy permissions. Both are managed in **System Settings -> Privacy & Security**:
+On first launch, Neural Memory automatically presents the **Interactive Setup Wizard** to guide you through granting the necessary macOS entitlements with visual cues:
 
-| Permission | Reason for Request | Where to Configure |
-| :--- | :--- | :--- |
-| **Accessibility** | Required to identify the active application name and window title. | *System Settings > Privacy & Security > Accessibility* -> Enable **NeuralMemoryAgent** |
-| **Screen Recording** | *(Optional)* Required only if you enable Visual Context (screenshot capture). | *System Settings > Privacy & Security > Screen Recording* -> Enable **NeuralMemoryAgent** |
+<p align="center">
+  <img src="assets/images/wizard_setup_accessibility.png" width="480" alt="Accessibility Setup" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+</p>
+
+1. **Accessibility (Active App & Window Identification)**:
+   - Click **Open System Settings > Accessibility** directly from the wizard.
+   - Toggle the switch next to **NeuralMemoryAgent** to the ON position.
+   - The wizard detects authorization in real-time (`AXIsProcessTrusted()`), displays a green checkmark, and advances.
+
+<p align="center">
+  <img src="assets/images/wizard_setup_screen_recording.png" width="480" alt="Screen Recording Setup" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+</p>
+
+2. **Screen Recording (Visual Context)**:
+   - Used strictly for local perceptual image hashing to anchor decisions to visible documents.
+   - You can authorize or click **Skip Step** if you only want text and window monitoring.
 
 > [!NOTE]
-> All capture starts in **Disabled / Paused** state by default. Neural Memory never captures any screen or text without your explicit consent.
+> All capture starts in **Disabled / Paused** state by default. Neural Memory never captures any screen or text without your explicit consent. You can reopen the setup wizard at any time from *Settings > Permissions > Reopen Visual Setup Wizard...*
 
 ---
 

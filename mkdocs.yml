@@ -1,0 +1,68 @@
+site_name: Neural Memory
+site_description: Local-First Cognitive Memory Assistant & Autonomous Desktop Knowledge Graph
+site_author: Hexecu
+site_url: https://hexecu.github.io/mcp-neuralmemory/
+repo_url: https://github.com/Hexecu/mcp-neuralmemory
+repo_name: Hexecu/mcp-neuralmemory
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - tables
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+nav:
+  - Overview: index.md
+  - Getting Started:
+      - Standalone Installer (DMG): STANDALONE_INSTALLER.md
+      - Dual-Track Architecture: ARCHITECTURE.md
+  - Features & Deep Dives:
+      - Temporal Knowledge Graph: TEMPORAL_GRAPH.md
+      - Cognitive Ontology: ONTOLOGY.md
+      - Model Context Protocol (MCP): MCP_TOOLS.md
+  - Privacy & Reliability:
+      - PrivacyShield & Redaction: PRIVACY.md
+      - Testing & Verification: TESTING.md

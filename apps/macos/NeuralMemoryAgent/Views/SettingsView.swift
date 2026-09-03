@@ -396,6 +396,15 @@ struct SettingsView: View {
                 Button("Refresh Permission Status") {
                     Task { await permissionManager.checkAllPermissions() }
                 }
+
+                Button {
+                    PermissionManager.shared.showOnboardingWindow()
+                } label: {
+                    HStack {
+                        Image(systemName: "sparkles")
+                        Text("Reopen Visual Setup Wizard...")
+                    }
+                }
             }
         }
         .formStyle(.grouped)

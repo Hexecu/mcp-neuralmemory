@@ -2,11 +2,16 @@
 
 [![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-blue.svg)](apps/macos)
 [![Architecture](https://img.shields.io/badge/architecture-Dual--Track%20(Standalone%20%7C%20Docker)-success.svg)](docs/ARCHITECTURE.md)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blueviolet.svg)](https://hexecu.github.io/mcp-neuralmemory/)
 [![Tests](https://img.shields.io/badge/tests-74%20Python%20%7C%2015%20Swift%20PASS-brightgreen.svg)](docs/TESTING.md)
 [![Zero-Docker](https://img.shields.io/badge/standalone-Zero%20Docker%20Required-orange.svg)](docs/STANDALONE_INSTALLER.md)
 [![License](https://img.shields.io/badge/license-MIT-purple.svg)](LICENSE)
 
 **Neural Memory** is a local-first personal cognitive memory assistant and second brain. It turns the desktop context you choose to share into an autonomous, searchable knowledge graph — anchoring real-world micro-feedback (like an *"Ok"* to an email quote), tracking commitments and decisions, and exposing your context directly to AI tools via the **Model Context Protocol (MCP)**.
+
+<p align="center">
+  <img src="assets/images/temporal_graph_canvas.png" width="940" alt="Neural Memory Temporal Knowledge Graph" style="border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+</p>
 
 ---
 
@@ -17,13 +22,18 @@ Neural Memory offers a **Dual-Track Architecture** designed for both casual MacB
 ### Track B: Standalone Packed Installer (Recommended for Users)
 > **Zero prerequisites. No Docker, no Python, no Homebrew, no terminal commands.**
 
-1. Download **`NeuralMemoryAgent-0.2.0-Installer.dmg`** (approx. 112 MB).
+1. Download [**`NeuralMemoryAgent-0.2.0-Installer.dmg`**](https://github.com/Hexecu/mcp-neuralmemory/releases/tag/v0.2.0) (approx. 112 MB).
 2. Open the disk image and drag **`NeuralMemoryAgent.app`** to your **Applications** folder.
 3. Launch the app from Applications.
+   - The interactive **Visual Setup Wizard** guides you through macOS Accessibility and Screen Recording setup.
    - Starts an embedded native daemon in under 0.2 seconds.
    - Stores all data locally in `~/Library/Application Support/NeuralMemory/memory.db`.
    - Access the menu bar icon, temporal graph, and settings instantly.
    - *Full guide: [docs/STANDALONE_INSTALLER.md](docs/STANDALONE_INSTALLER.md)*.
+
+<p align="center">
+  <img src="assets/images/wizard_setup_accessibility.png" width="480" alt="Permissions Setup Wizard" style="border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+</p>
 
 ### Track A: Open Local Development Stack (For Developers)
 > **Full Docker Compose + Neo4j 5.26 Community Graph Database.**
@@ -40,6 +50,10 @@ cd mcp-neuralmemory
 - Stop without losing data: `make down`
 - Re-start: `make up`
 
+<p align="center">
+  <img src="assets/images/settings_storage_mode.png" width="520" alt="Unified Settings & Storage Mode" style="border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+</p>
+
 ---
 
 ## 🌟 Why Neural Memory is Different
@@ -49,13 +63,15 @@ cd mcp-neuralmemory
 - 🌌 **Temporal Knowledge Graph**:
   - **Regional Topic Clusters**: Orbital regional gravity organizes entities into clean thematic galaxies without central collapse.
   - **Timeline Stream**: Horizontal chronological layout with 5 semantic altitude lanes (*Reflections*, *Decisions*, *Meetings*, *Commitments*, *Topics*).
-  - **Time-Travel Scrubber**: Interactive slider to replay memory history with Ebbinghaus memory decay ($R = e^{-\Delta t / S}$).
+  - **Time-Travel Scrubber**: Interactive slider to replay memory history with Ebbinghaus memory decay ($R = e^{-\\Delta t / S}$).
 - 🤖 **Agent-Ready Memory (MCP)**: Native Model Context Protocol server over `stdio` lets Claude Desktop, Cursor, Antigravity, and OpenCode recall past decisions, open commitments, and meeting notes.
 - 🌙 **Cognitive Dream Mode**: Periodically prunes ephemeral low-level events (48h retention) and derives higher-order reflections and daily executive briefings.
 
 ---
 
-## 📚 Complete Documentation Sitemap
+## 📚 Complete Documentation Website
+
+> 🌐 **Interactive Documentation Site**: [**hexecu.github.io/mcp-neuralmemory**](https://hexecu.github.io/mcp-neuralmemory/)
 
 | Guide | Description |
 | :--- | :--- |

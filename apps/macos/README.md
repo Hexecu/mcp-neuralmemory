@@ -2,11 +2,16 @@
 
 `NeuralMemoryAgent` is a native macOS application built with Swift and SwiftUI. It acts as both your **personal contextual capture agent** and your **interactive temporal knowledge graph explorer**.
 
+<p align="center">
+  <img src="../../assets/images/temporal_graph_canvas.png" width="940" alt="Temporal Knowledge Graph Canvas" style="border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+</p>
+
 ---
 
 ## 1. Key Features
 
 - **Menu Bar Assistant**: Sits discreetly in your macOS status bar with quick toggles for *Pause Capture*, *Private Mode*, *Open Graph*, and *Settings*.
+- **Interactive Permissions Setup Wizard**: A clean 4-step first-launch guide featuring visual System Settings mockups for macOS Accessibility and Screen Recording.
 - **Temporal Knowledge Graph Window**:
   - **🌌 Topic Clusters Mode**: Force-directed graph with orbital regional gravity, organizing thoughts into thematic galaxies without central collapse.
   - **⏳ Timeline Stream Mode**: Horizontal chronological stream with 5 vertical semantic altitude tracks (*Reflections*, *Decisions*, *Meetings*, *Commitments*, *Topics*).
@@ -19,7 +24,11 @@
 
 ---
 
-## 2. Installation Options
+## 2. Installation & First-Time Setup
+
+<p align="center">
+  <img src="../../assets/images/wizard_setup_accessibility.png" width="480" alt="Permissions Setup Wizard" style="border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+</p>
 
 ### Option A: Drag-and-Drop DMG Installer (Recommended for Users)
 Download `NeuralMemoryAgent-0.2.0-Installer.dmg`, double-click to mount, and drag `NeuralMemoryAgent.app` to your `/Applications` folder. See [docs/STANDALONE_INSTALLER.md](../../docs/STANDALONE_INSTALLER.md).
@@ -44,6 +53,10 @@ Generates `dist/NeuralMemoryAgent-0.2.0-Installer.dmg` (112 MB).
 
 ## 3. Configuration & Settings
 
+<p align="center">
+  <img src="../../assets/images/settings_storage_mode.png" width="520" alt="Settings & Storage Mode" style="border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
+</p>
+
 Open **Settings & Preferences** (`⌘,` or via the gear icon in the Graph toolbar):
 
 - **Server Tab**:
@@ -62,7 +75,7 @@ Open **Settings & Preferences** (`⌘,` or via the gear icon in the Graph toolba
   - Default layout selector (*Topic Clusters* vs *Timeline Stream*).
   - Memory decay half-life slider (12h to 168h) for the Ebbinghaus retention curve.
 - **Permissions Tab**:
-  - Live status check and direct shortcuts to macOS Accessibility and Screen Recording privacy panels.
+  - Live status check, direct shortcuts to macOS Privacy panels, and button to **Reopen Visual Setup Wizard...**.
 
 ---
 

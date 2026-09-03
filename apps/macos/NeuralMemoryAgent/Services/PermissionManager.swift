@@ -93,17 +93,26 @@ class PermissionManager: ObservableObject {
         let contentView = OnboardingView()
             .environmentObject(self)
 
+        if let existing = onboardingWindow {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 600),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 680),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.center()
-        window.title = "Welcome to NeuralMemoryAgent"
+        window.title = "Neural Memory — Setup Wizard"
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
         window.contentView = NSHostingView(rootView: contentView)
         window.makeKeyAndOrderFront(nil)
-        window.level = .floating
+        NSApp.activate(ignoringOtherApps: true)
 
         self.onboardingWindow = window
     }
