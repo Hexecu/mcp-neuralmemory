@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from kg_mcp import __version__
 from kg_mcp.config import get_settings
 from kg_mcp.kg.repo import KGRepository, get_repository
+from kg_mcp.utils import serialize_response
 
 logger = logging.getLogger(__name__)
 
@@ -233,18 +234,19 @@ def create_api_app(
                 and len(payload.text_content) > 10
             ):
                 background.add_task(_process_text, repo, payload, event_id)
-        return result
+        return serialize_response(result)
 
     @app.post("/api/ingest/slice", dependencies=[Depends(require_token)])
     async def ingest_slice(payload: SliceIn) -> dict[str, Any]:
         try:
-            return await repository_factory().upsert_activity_slice(
+            res = await repository_factory().upsert_activity_slice(
                 project_id=payload.project_id,
                 start_time=payload.start_time,
                 end_time=payload.end_time,
                 summary=payload.summary,
                 event_ids=payload.event_ids,
             )
+            return serialize_response(res)
         except Exception:
             logger.exception("Slice ingestion failed")
             raise HTTPException(status_code=503, detail="Memory store is unavailable") from None
@@ -252,7 +254,6 @@ def create_api_app(
     @app.post("/api/search/deep", dependencies=[Depends(require_token)])
     async def deep_search(payload: DeepSearchIn) -> Any:
         from kg_mcp.services.deep_search import DeepSearchService
-        from kg_mcp.utils import serialize_response
 
         try:
             service = DeepSearchService(project_id=payload.project_id)

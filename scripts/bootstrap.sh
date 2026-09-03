@@ -37,11 +37,26 @@ fi
 docker compose config --quiet
 docker compose up --detach --build
 
+if [[ -f "$project_dir/.env" ]]; then
+  set -a
+  source "$project_dir/.env"
+  set +a
+fi
+
 echo "Waiting for Neural Memory..."
 for _ in $(seq 1 60); do
   if curl --fail --silent http://127.0.0.1:${NEURAL_MEMORY_PORT:-8765}/health >/dev/null 2>&1; then
-    echo "Neural Memory is ready at http://127.0.0.1:${NEURAL_MEMORY_PORT:-8765}"
-    echo "Copy KG_MCP_TOKEN from .env into a capture client before enabling it."
+    echo "================================================================"
+    echo "✅ Neural Memory is ready!"
+    echo "   API:           http://127.0.0.1:${NEURAL_MEMORY_PORT:-8765}"
+    echo "   Neo4j Browser: http://127.0.0.1:${NEO4J_HTTP_PORT:-8774}"
+    echo "   Neo4j Bolt:    bolt://127.0.0.1:${NEO4J_BOLT_PORT:-8787}"
+    echo "   Token:         ${KG_MCP_TOKEN}"
+    echo "================================================================"
+    echo "Next steps:"
+    echo "1. Run './scripts/doctor.sh' to check status."
+    echo "2. Run './scripts/setup-mcp.sh' to configure your AI assistant (Claude/Cursor)."
+    echo "3. Build the macOS menu bar client: 'make macos'."
     exit 0
   fi
   sleep 2

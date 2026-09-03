@@ -19,8 +19,17 @@ logger = logging.getLogger(__name__)
 
 async def apply_schema() -> None:
     """Read and apply schema.cypher to Neo4j."""
-    logger.info("Connecting to Neo4j...")
-    await init_neo4j()
+    for attempt in range(1, 16):
+        try:
+            logger.info("Connecting to Neo4j (attempt %d/15)...", attempt)
+            await init_neo4j()
+            break
+        except Exception as e:
+            if attempt == 15:
+                logger.error("Could not connect to Neo4j after 15 attempts: %s", e)
+                raise
+            logger.warning("Neo4j not ready yet (%s). Retrying in 2s...", e)
+            await asyncio.sleep(2)
 
     client = get_neo4j_client()
 

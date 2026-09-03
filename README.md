@@ -40,6 +40,17 @@ Expected response:
 {"status":"ok","service":"neural-memory","version":"0.2.0"}
 ```
 
+Explore your Knowledge Graph in the Neo4j Browser:
+- **URL**: [http://127.0.0.1:8774](http://127.0.0.1:8774)
+- **User**: `neo4j`
+- **Password**: Found in your `.env` under `NEO4J_PASSWORD`
+
+Run the end-to-end test suite:
+
+```bash
+make e2e
+```
+
 Your graph survives `docker compose down`. Removing the Docker volume deletes it, so back it up first.
 
 ## Capture clients
@@ -81,11 +92,25 @@ When enrichment is enabled, captured text or screenshots may leave your machine 
 
 ## MCP for coding agents
 
-For local development or an MCP host, install the Python package and use stdio:
+Neural Memory can be connected directly to AI coding tools (Claude Desktop, Cursor, Antigravity, OpenCode).
+
+### One-command configuration
+
+Run the setup helper to display or install the MCP configuration:
+
+```bash
+make mcp
+# Or auto-install into Claude Desktop:
+./scripts/setup-mcp.sh --claude
+```
+
+### Manual development setup
+
+For local development or manual MCP setup, install the package in an editable venv:
 
 ```bash
 cd server
-python3.11 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 kg-mcp --transport stdio

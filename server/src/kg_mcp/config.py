@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     )
 
     # Neo4j Configuration
-    neo4j_uri: str = Field(default="bolt://localhost:7687", description="Neo4j Bolt URI")
+    neo4j_uri: str = Field(default="bolt://127.0.0.1:8787", description="Neo4j Bolt URI")
     neo4j_user: str = Field(default="neo4j", description="Neo4j username")
     neo4j_password: str = Field(default="", description="Neo4j password")
     neo4j_configured: str = Field(default="1", description="Is Neo4j configured (1/0)")
