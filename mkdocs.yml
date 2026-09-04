@@ -61,6 +61,7 @@ nav:
       - Standalone Installer (DMG): STANDALONE_INSTALLER.md
       - Dual-Track Architecture: ARCHITECTURE.md
   - Features & Deep Dives:
+      - Local Models & On-Device AI: LOCAL_MODELS_ANALYSIS.md
       - Temporal Knowledge Graph: TEMPORAL_GRAPH.md
       - Cognitive Ontology: ONTOLOGY.md
       - Model Context Protocol (MCP): MCP_TOOLS.md
