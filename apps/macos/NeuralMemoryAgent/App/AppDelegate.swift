@@ -184,7 +184,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         save(OnboardingView(initialStep: 1).environmentObject(pManager), size: CGSize(width: 580, height: 680), name: "wizard_setup_accessibility.png")
         save(OnboardingView(initialStep: 2).environmentObject(pManager), size: CGSize(width: 580, height: 680), name: "wizard_setup_screen_recording.png")
         save(SettingsView().environmentObject(state).environmentObject(pManager), size: CGSize(width: 580, height: 520), name: "settings_storage_mode.png")
-        save(GraphView().environmentObject(state), size: CGSize(width: 1050, height: 680), name: "temporal_graph_canvas.png")
+
+        let showcase = GraphView.showcaseData()
+        save(
+            GraphView(
+                sampleNodes: showcase.nodes,
+                sampleLinks: showcase.links,
+                layoutMode: .cluster,
+                selectedNodeId: "d-cloud"
+            ).environmentObject(state),
+            size: CGSize(width: 1080, height: 720),
+            name: "temporal_graph_canvas.png"
+        )
+        save(
+            GraphView(
+                sampleNodes: showcase.nodes,
+                sampleLinks: showcase.links,
+                layoutMode: .timeline,
+                selectedNodeId: "d-cloud"
+            ).environmentObject(state),
+            size: CGSize(width: 1080, height: 720),
+            name: "temporal_graph_timeline.png"
+        )
 
         exit(0)
     }

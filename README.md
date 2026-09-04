@@ -63,7 +63,11 @@ cd mcp-neuralmemory
 - 🌌 **Temporal Knowledge Graph**:
   - **Regional Topic Clusters**: Orbital regional gravity organizes entities into clean thematic galaxies without central collapse.
   - **Timeline Stream**: Horizontal chronological layout with 5 semantic altitude lanes (*Reflections*, *Decisions*, *Meetings*, *Commitments*, *Topics*).
-  - **Time-Travel Scrubber**: Interactive slider to replay memory history with Ebbinghaus memory decay ($R = e^{-\\Delta t / S}$).
+  - **Time-Travel Scrubber**: Interactive slider to replay memory history with Ebbinghaus memory decay ($R = e^{-\Delta t / S}$).
+
+<p align="center">
+  <img src="assets/images/temporal_graph_timeline.png" width="940" alt="Temporal Knowledge Graph Timeline Stream" style="border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+</p>
 - 🤖 **Agent-Ready Memory (MCP)**: Native Model Context Protocol server over `stdio` lets Claude Desktop, Cursor, Antigravity, and OpenCode recall past decisions, open commitments, and meeting notes.
 - 🌙 **Cognitive Dream Mode**: Periodically prunes ephemeral low-level events (48h retention) and derives higher-order reflections and daily executive briefings.
 

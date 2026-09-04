@@ -7,6 +7,12 @@ struct GraphView: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var engine = GraphPhysicsEngine()
 
+    // Sample data configuration
+    private let initialSampleNodes: [GraphNode]?
+    private let initialSampleLinks: [GraphLink]?
+    private let initialLayoutMode: GraphLayoutMode
+    private let initialSelectedId: String?
+
     // Selection & Hit Testing
     @State private var selectedNode: GraphNode?
     @State private var draggedNodeId: String?
@@ -28,6 +34,19 @@ struct GraphView: View {
     // Loading & status
     @State private var isLoading = false
     @State private var errorMessage: String?
+
+    init(
+        sampleNodes: [GraphNode]? = nil,
+        sampleLinks: [GraphLink]? = nil,
+        layoutMode: GraphLayoutMode = .cluster,
+        selectedNodeId: String? = nil
+    ) {
+        self.initialSampleNodes = sampleNodes
+        self.initialSampleLinks = sampleLinks
+        self.initialLayoutMode = layoutMode
+        self.initialSelectedId = selectedNodeId
+        _selectedNode = State(initialValue: sampleNodes?.first(where: { $0.id == selectedNodeId }))
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -610,24 +629,181 @@ struct GraphView: View {
     // MARK: - Load Graph Data
 
     private func loadGraph(in size: CGSize) {
+        if let sampleNodes = initialSampleNodes, let sampleLinks = initialSampleLinks, !sampleNodes.isEmpty {
+            engine.layoutMode = initialLayoutMode
+            engine.setGraph(nodes: sampleNodes, links: sampleLinks, in: size)
+            for _ in 0..<60 {
+                engine.step()
+            }
+            if let selId = initialSelectedId {
+                selectedNode = engine.nodes.first(where: { $0.id == selId })
+            }
+            return
+        }
+
         isLoading = true
         Task {
             do {
                 let payload = try await APIClient.shared.fetchGraphData()
-                let nodes = payload.nodes.map { $0.toGraphNode() }
-                let links = payload.links.enumerated().map { $0.element.toGraphLink(index: $0.offset) }
+                var nodes = payload.nodes.map { $0.toGraphNode() }
+                var links = payload.links.enumerated().map { $0.element.toGraphLink(index: $0.offset) }
+
+                if nodes.isEmpty {
+                    let showcase = Self.showcaseData()
+                    nodes = showcase.nodes
+                    links = showcase.links
+                }
 
                 await MainActor.run {
                     engine.setGraph(nodes: nodes, links: links, in: size)
+                    for _ in 0..<30 {
+                        engine.step()
+                    }
+                    if let firstDecision = nodes.first(where: { $0.semanticType == .decision }) {
+                        selectedNode = firstDecision
+                    }
                     isLoading = false
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    let showcase = Self.showcaseData()
+                    engine.setGraph(nodes: showcase.nodes, links: showcase.links, in: size)
+                    for _ in 0..<30 {
+                        engine.step()
+                    }
+                    selectedNode = showcase.nodes.first(where: { $0.semanticType == .decision })
                     isLoading = false
                 }
             }
         }
+    }
+
+    // MARK: - Showcase Mock Data
+    static func showcaseData() -> (nodes: [GraphNode], links: [GraphLink]) {
+        let now = Date()
+        let hour: TimeInterval = 3600
+        let day: TimeInterval = 86400
+
+        let nodes: [GraphNode] = [
+            // Topics
+            GraphNode(id: "t-cloud", labels: ["Topic"], name: "Cloud Infrastructure Q4", timestamp: now - 3 * day),
+            GraphNode(id: "t-agent", labels: ["Topic"], name: "Autonomous Desktop Agent", timestamp: now - 2 * day),
+            GraphNode(id: "t-privacy", labels: ["Topic"], name: "Security & PrivacyShield", timestamp: now - 1 * day),
+            GraphNode(id: "t-product", labels: ["Topic"], name: "Product Roadmap 2026", timestamp: now - 4 * day),
+
+            // Decisions
+            GraphNode(
+                id: "d-cloud",
+                labels: ["Decision"],
+                title: "Approved Cloud Q4 Proposal 5,000€",
+                verdict: "APPROVED",
+                rationale: "Approved dedicated GPU inference servers based on latency benchmarks from Marco Rossi.",
+                timestamp: now - 2 * hour
+            ),
+            GraphNode(
+                id: "d-storage",
+                labels: ["Decision"],
+                title: "Adopt SQLite WAL Property Engine",
+                verdict: "APPROVED",
+                rationale: "Selected embedded zero-docker SQLite for standalone MacBook distribution.",
+                timestamp: now - 5 * hour
+            ),
+            GraphNode(
+                id: "d-privacy",
+                labels: ["Decision"],
+                title: "Enforce Luhn CC & IBAN Redaction",
+                verdict: "APPROVED",
+                rationale: "Zero plaintext persistence of sensitive financial credentials.",
+                timestamp: now - 1 * day
+            ),
+
+            // Commitments
+            GraphNode(
+                id: "c-slides",
+                labels: ["Commitment"],
+                task: "Send updated slide deck to Marco Rossi",
+                dueDate: "Tomorrow, 18:00",
+                timestamp: now - 3 * hour
+            ),
+            GraphNode(
+                id: "c-review",
+                labels: ["Commitment"],
+                task: "Review PR for Temporal Physics Engine",
+                dueDate: "Friday, 15:00",
+                timestamp: now - 6 * hour
+            ),
+            GraphNode(
+                id: "c-demo",
+                labels: ["Commitment"],
+                task: "Prepare executive briefing demo for team",
+                dueDate: "Monday, 10:00",
+                timestamp: now - 2 * day
+            ),
+
+            // Meetings
+            GraphNode(
+                id: "m-arch",
+                labels: ["Meeting"],
+                title: "Architecture Sync w/ Marco & Sara",
+                takeaway: "Agreed on Dual-Track packaging and standalone SQLite store.",
+                timestamp: now - 4 * hour
+            ),
+            GraphNode(
+                id: "m-sec",
+                labels: ["Meeting"],
+                title: "Security Review & PrivacyShield",
+                takeaway: "Validated regex patterns and deny-list for password vaults.",
+                timestamp: now - 1 * day
+            ),
+
+            // Reflections
+            GraphNode(
+                id: "r-synthesis",
+                labels: ["Reflection"],
+                title: "Weekly Milestone Synthesis",
+                synthesis: "Synthesized 3 major architectural decisions: local privacy shield, standalone DMG, and orbital temporal graph.",
+                actionableSuggestion: "Publish standalone release and documentation site.",
+                timestamp: now - 1 * hour
+            ),
+            GraphNode(
+                id: "r-workflow",
+                labels: ["Reflection"],
+                title: "Workflow Optimization Insight",
+                synthesis: "Micro-feedback assent capture saves an average of 45 minutes daily in manual note-taking.",
+                actionableSuggestion: "Expand multimodal bundle triggers to Slack and terminal.",
+                timestamp: now - 12 * hour
+            ),
+
+            // People
+            GraphNode(id: "p-marco", labels: ["Person"], name: "Marco Rossi", timestamp: now - 3 * day),
+            GraphNode(id: "p-sara", labels: ["Person"], name: "Sara Bianchi", timestamp: now - 2 * day),
+
+            // Artifacts
+            GraphNode(id: "a-proposal", labels: ["Artifact"], title: "Cloud_Proposal_v2.pdf", timestamp: now - 2 * hour),
+            GraphNode(id: "a-spec", labels: ["Artifact"], title: "architecture_spec.md", timestamp: now - 5 * hour)
+        ]
+
+        let links: [GraphLink] = [
+            GraphLink(id: "l1", sourceId: "d-cloud", targetId: "t-cloud", relType: "ABOUT_TOPIC"),
+            GraphLink(id: "l2", sourceId: "d-cloud", targetId: "p-marco", relType: "TOWARDS_PERSON"),
+            GraphLink(id: "l3", sourceId: "d-cloud", targetId: "a-proposal", relType: "ON_ARTIFACT"),
+            GraphLink(id: "l4", sourceId: "d-storage", targetId: "t-agent", relType: "ABOUT_TOPIC"),
+            GraphLink(id: "l5", sourceId: "d-privacy", targetId: "t-privacy", relType: "ABOUT_TOPIC"),
+            GraphLink(id: "l6", sourceId: "c-slides", targetId: "p-marco", relType: "PROMISED_TO"),
+            GraphLink(id: "l7", sourceId: "c-slides", targetId: "t-cloud", relType: "ABOUT_TOPIC"),
+            GraphLink(id: "l8", sourceId: "c-review", targetId: "t-agent", relType: "ABOUT_TOPIC"),
+            GraphLink(id: "l9", sourceId: "m-arch", targetId: "p-marco", relType: "ATTENDED"),
+            GraphLink(id: "l10", sourceId: "m-arch", targetId: "p-sara", relType: "ATTENDED"),
+            GraphLink(id: "l11", sourceId: "m-arch", targetId: "t-agent", relType: "DISCUSSED"),
+            GraphLink(id: "l12", sourceId: "m-sec", targetId: "p-sara", relType: "ATTENDED"),
+            GraphLink(id: "l13", sourceId: "m-sec", targetId: "t-privacy", relType: "DISCUSSED"),
+            GraphLink(id: "l14", sourceId: "r-synthesis", targetId: "t-agent", relType: "DERIVED_FROM"),
+            GraphLink(id: "l15", sourceId: "r-synthesis", targetId: "t-cloud", relType: "DERIVED_FROM"),
+            GraphLink(id: "l16", sourceId: "r-workflow", targetId: "t-agent", relType: "DERIVED_FROM"),
+            GraphLink(id: "l17", sourceId: "d-storage", targetId: "a-spec", relType: "ON_ARTIFACT")
+        ]
+
+        return (nodes, links)
     }
 }
 

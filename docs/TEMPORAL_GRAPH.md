@@ -37,6 +37,10 @@ Inspired by state-of-the-art temporal graph memory architectures (*Graphiti by Z
   - **Lane 4 ($Y = 345$)**: *Commitments, Promises & Open Loops* (crimson red)
   - **Lane 5 (Bottom, $Y = 430$)**: *Topics, Concepts & People* (cyan blue)
 
+<p align="center">
+  <img src="assets/images/temporal_graph_timeline.png" width="940" alt="Temporal Timeline Stream Lanes" style="border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+</p>
+
 ---
 
 ## 2. Interactive Time-Travel & Scrubber

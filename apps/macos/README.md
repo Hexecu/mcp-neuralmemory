@@ -22,6 +22,10 @@
   - **Track A (Open Local)**: Seamlessly attaches to your local Docker Compose + Neo4j stack if active on port `8765`.
 - **PrivacyShield Integration**: Proactively ignores password managers, banking apps, and incognito windows, while redacting sensitive tokens and credentials on-the-fly.
 
+<p align="center">
+  <img src="../../assets/images/temporal_graph_timeline.png" width="940" alt="Temporal Knowledge Graph Timeline Stream" style="border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.5);">
+</p>
+
 ---
 
 ## 2. Installation & First-Time Setup
